@@ -23,6 +23,7 @@ import (
 	"github.com/iotexproject/iotex-hermes/util"
 )
 
+// ClaimCmd is the claim command
 var ClaimCmd = &cobra.Command{
 	Use:   "claim DELEGATE",
 	Short: "Claim rewards for delegate",

@@ -2,6 +2,7 @@
 GOCMD=go
 GOBUILD=$(GOCMD) build
 GOTEST=$(GOCMD) test
+GOLINT=golint
 BUILD_TARGET_SERVER=hermes
 
 install:
@@ -19,6 +20,9 @@ clean:
 
 fmt:
 	$(GOCMD) fmt ./...
+
+lint:
+	go list ./... | grep -v /vendor/ | xargs $(GOLINT)
 
 test: fmt
 	$(GOTEST) -short -race ./...

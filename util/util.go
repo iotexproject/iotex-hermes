@@ -16,6 +16,7 @@ import (
 	"github.com/iotexproject/iotex-antenna-go/v2/account"
 )
 
+// MustFetchNonEmptyParam must fetch a nonempty environment variable
 func MustFetchNonEmptyParam(key string) string {
 	str := os.Getenv(key)
 	if len(str) == 0 {

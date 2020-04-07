@@ -761,6 +761,7 @@ const (
 	}]`
 )
 
+// DistributeCmd is the distribute command
 var DistributeCmd = &cobra.Command{
 	Use:   "distribute DELEGATE",
 	Short: "Distribute rewards for delegate",
@@ -771,6 +772,7 @@ var DistributeCmd = &cobra.Command{
 	},
 }
 
+// DistributionInfo defines the distribution information
 type DistributionInfo struct {
 	DelegateName  string
 	RecipientList []common.Address
