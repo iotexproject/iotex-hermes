@@ -13,6 +13,7 @@ The automatic reward distribution service for IoTeX delegates
 1. If you put the project code under your `$GOPATH/src`, you will need to set up an environment variable:
 ```
 export GO111MODULE=on
+set GO111MODULE=on (for windows)
 ```
 
 2. Specify distributor's account information by setting up the password for the keystore file and the IoTeX address for keystore verification:
