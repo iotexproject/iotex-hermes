@@ -144,6 +144,10 @@ func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionI
 	for endEpoch >= curEpoch {
 		endEpoch--
 	}
+	if startEpoch > endEpoch {
+		return nil, nil, nil, fmt.Errorf("invalid epoch range, Start Epoch: %d, End Epoch: %d",
+			startEpoch, endEpoch)
+	}
 
 	fmt.Printf("Distribution Start Epoch: %d\n", startEpoch)
 	fmt.Printf("Distribution End Epoch: %d\n", endEpoch)
