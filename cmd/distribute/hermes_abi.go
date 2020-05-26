@@ -738,4 +738,3 @@ const (
 		"type": "event"
 	}]`
 )
-

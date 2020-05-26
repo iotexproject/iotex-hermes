@@ -141,8 +141,8 @@ func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionI
 		return nil, nil, nil, err
 	}
 	curEpoch := resp.ChainMeta.Epoch.Num
-	if endEpoch >= curEpoch {
-		return nil, nil, nil, errors.New("end epoch is not ready")
+	for endEpoch >= curEpoch {
+		endEpoch--
 	}
 
 	fmt.Printf("Distribution Start Epoch: %d\n", startEpoch)
