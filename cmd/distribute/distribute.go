@@ -117,12 +117,19 @@ func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionI
 	}
 	startEpoch := lastEndEpoch + 1
 
+	resp, err := c.API().GetChainMeta(context.Background(), &iotexapi.GetChainMetaRequest{})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	curEpoch := resp.ChainMeta.Epoch.Num
+
 	epochIntervalStr := util.MustFetchNonEmptyParam("EPOCH_INTERVAL")
 	epochInterval, err := strconv.Atoi(epochIntervalStr)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	endEpoch := lastEndEpoch + uint64(epochInterval)
+
+	var endEpoch uint64
 	if lastEndEpoch == uint64(0) {
 		startEpoch, err = getContractStartEpoch(c)
 		if err != nil {
@@ -134,16 +141,15 @@ func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionI
 			return nil, nil, nil, err
 		}
 		endEpoch = uint64(firstEndEpoch)
+	} else if epochInterval == 0 {
+		endEpoch = curEpoch - 2
+	} else {
+		endEpoch = lastEndEpoch + uint64(epochInterval)
+		for endEpoch >= curEpoch-1 {
+			endEpoch--
+		}
 	}
-	// get the current epoch on the chain and validate the endEpoch
-	resp, err := c.API().GetChainMeta(context.Background(), &iotexapi.GetChainMetaRequest{})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	curEpoch := resp.ChainMeta.Epoch.Num
-	for endEpoch >= curEpoch {
-		endEpoch--
-	}
+
 	if startEpoch > endEpoch {
 		return nil, nil, nil, fmt.Errorf("invalid epoch range, Start Epoch: %d, End Epoch: %d",
 			startEpoch, endEpoch)
