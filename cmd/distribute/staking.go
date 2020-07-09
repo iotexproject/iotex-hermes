@@ -9,11 +9,13 @@ import (
 
 	"github.com/iotexproject/go-pkgs/hash"
 	"github.com/iotexproject/iotex-antenna-go/v2/iotex"
-	"github.com/iotexproject/iotex-hermes/util"
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
 	"github.com/pkg/errors"
+
+	"github.com/iotexproject/iotex-hermes/util"
 )
 
+// AddDeposit add deposit to bucket
 func AddDeposit(
 	c iotex.AuthedClient,
 	bucketId uint64,
