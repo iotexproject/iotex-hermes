@@ -18,7 +18,7 @@ import (
 // AddDeposit add deposit to bucket
 func AddDeposit(
 	c iotex.AuthedClient,
-	bucketId uint64,
+	bucketID uint64,
 	amount *big.Int,
 ) (hash.Hash256, error) {
 	ctx := context.Background()
@@ -33,7 +33,7 @@ func AddDeposit(
 	if err != nil {
 		return hash.ZeroHash256, err
 	}
-	h, err := c.Staking().AddDeposit(bucketId, amount).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
+	h, err := c.Staking().AddDeposit(bucketID, amount).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
 	if err != nil {
 		return hash.ZeroHash256, err
 	}
