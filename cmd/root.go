@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/iotexproject/iotex-hermes/cmd/claim"
+	"github.com/iotexproject/iotex-hermes/cmd/deposit"
 	"github.com/iotexproject/iotex-hermes/cmd/distribute"
 )
 
@@ -23,4 +24,5 @@ var RootCmd = &cobra.Command{
 func init() {
 	RootCmd.AddCommand(claim.ClaimCmd)
 	RootCmd.AddCommand(distribute.DistributeCmd)
+	RootCmd.AddCommand(deposit.DepositCmd)
 }

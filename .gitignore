@@ -26,6 +26,8 @@ vendor/*
 *.dat
 local_config.yaml
 coverage.html
+coverage.txt
 lint.log
 main
 iotex-tube
+iotex-hermes
