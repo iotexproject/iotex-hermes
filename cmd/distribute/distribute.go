@@ -53,8 +53,12 @@ func distributeReward() error {
 	if err != nil {
 		return err
 	}
-	if latestJob != nil && !latestJob.IsComplate() {
-		return fmt.Errorf("There are tasks: startEpoch %s, endEpoch %s is not completed for deposit.", latestJob.StartEpoch, latestJob.EndEpoch)
+	if latestJob != nil {
+		if i, e := latestJob.IsComplate(); e != nil {
+			return e
+		} else if !i {
+			return fmt.Errorf("There are tasks: startEpoch %s, endEpoch %s is not completed for deposit.", latestJob.StartEpoch, latestJob.EndEpoch)
+		}
 	}
 
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")

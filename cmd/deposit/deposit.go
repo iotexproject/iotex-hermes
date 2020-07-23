@@ -20,7 +20,7 @@ import (
 
 // DistributeCmd is the distribute command
 var DepositCmd = &cobra.Command{
-	Use:   "deposit",
+	Use:   "deposit DELEGATE",
 	Short: "Deposit to bucket for voter",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -37,7 +37,9 @@ func depositToBucket() error {
 	}
 
 	// If is already complate. return
-	if latestJob.IsComplate() {
+	if i, e := latestJob.IsComplate(); e != nil {
+		return e
+	} else if i {
 		return nil
 	}
 
@@ -65,7 +67,9 @@ func depositToBucket() error {
 	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), account)
 
 	for i := range latestJob.Deposits {
-		if latestJob.Deposits[i].IsComplate() {
+		if ic, e := latestJob.Deposits[i].IsComplate(); e != nil {
+			return e
+		} else if ic {
 			// If this voter is complated, continue next.
 			continue
 		}
@@ -78,7 +82,9 @@ func depositToBucket() error {
 		if err != nil {
 			return err
 		}
-		latestJob.Deposits[i].Update()
+		if err := latestJob.Deposits[i].Update(); err != nil {
+			return err
+		}
 	}
 
 	// The loop did not let the function exit,
