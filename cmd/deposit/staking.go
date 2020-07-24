@@ -87,7 +87,7 @@ func printSussess(delegateName string, bucketID uint64, amount *big.Int) {
 }
 
 // getBuclectID
-func GetBuckectID(c iotex.AuthedClient, caddress string) (int64, error) {
+func GetBuckectID(c iotex.AuthedClient, voter string) (int64, error) {
 	cstring := util.MustFetchNonEmptyParam("AUTO_DEPOSIT_CONTRACT_ADDRESS")
 	caddr, err := address.FromString(cstring)
 	if err != nil {
@@ -98,7 +98,7 @@ func GetBuckectID(c iotex.AuthedClient, caddress string) (int64, error) {
 		return 0, err
 	}
 
-	ioAddress, err := ioAddrToEvmAddr(caddress)
+	ioAddress, err := ioAddrToEvmAddr(voter)
 	if err != nil {
 		return 0, err
 	}

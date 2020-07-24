@@ -155,11 +155,12 @@ func distributeReward() error {
 				append(allToBucketDelegateNameList, dist.DelegateName)
 		}
 	}
-	if err := commitDistributions(c, endEpoch, delegateNames); err != nil {
+
+	if _, err := model.CreateJob(tip, endEpoch, allToBucketDelegateNameList, allToBucketAddressList, allToBucketIDList, allToBucketAmountList); err != nil {
 		return err
 	}
 
-	if _, err := model.CreateJob(tip, endEpoch, allToBucketDelegateNameList, allToBucketAddressList, allToBucketIDList, allToBucketAmountList); err != nil {
+	if err := commitDistributions(c, endEpoch, delegateNames); err != nil {
 		return err
 	}
 
