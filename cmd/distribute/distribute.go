@@ -94,7 +94,8 @@ func distributeReward() error {
 				break
 			}
 			if int(distrbutedCount)%chunkSize != 0 {
-				return errors.New("invalid distributed count")
+				return fmt.Errorf("invalid distributed count, Delegate Name: %s, Distributed Count: %d, Number of Recipients: %d",
+					dist.DelegateName, distrbutedCount, len(dist.RecipientList))
 			}
 			nextGroup := int(distrbutedCount) / chunkSize
 			if err := sendRewards(c, dist.DelegateName, endEpoch, tip, divAddrList[nextGroup], divAmountList[nextGroup]); err != nil {
