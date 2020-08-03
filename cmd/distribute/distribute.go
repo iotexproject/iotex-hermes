@@ -25,6 +25,8 @@ import (
 	"github.com/shurcooL/graphql"
 	"github.com/spf13/cobra"
 
+	"github.com/iotexproject/iotex-hermes/cmd/deposit"
+	"github.com/iotexproject/iotex-hermes/model"
 	"github.com/iotexproject/iotex-hermes/util"
 )
 
@@ -47,6 +49,18 @@ type DistributionInfo struct {
 }
 
 func distributeReward() error {
+	latestJob, err := model.GetLatest()
+	if err != nil {
+		return err
+	}
+	if latestJob != nil {
+		if i, e := latestJob.IsComplate(); e != nil {
+			return e
+		} else if !i {
+			return fmt.Errorf("There are tasks: startEpoch %s, endEpoch %s is not completed for deposit.", latestJob.StartEpoch, latestJob.EndEpoch)
+		}
+	}
+
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	account, err := util.GetVaultAccount(pwd)
 	if err != nil {
@@ -77,33 +91,80 @@ func distributeReward() error {
 	if err != nil {
 		return err
 	}
+
 	delegateNames := make([][32]byte, 0, len(distributions))
+	// For deposit
+	var (
+		allToBucketAddressList      []common.Address
+		allToBucketIDList           []uint64
+		allToBucketAmountList       []*big.Int
+		allToBucketDelegateNameList []string
+	)
+
 	for _, dist := range distributions {
 		delegateNames = append(delegateNames, stringToBytes32(dist.DelegateName))
-		divAddrList, divAmountList, err := splitRecipients(chunkSize, dist.RecipientList, dist.AmountList)
+
+		// Find who has set up auto deposit and save to toBucketXXX, who has not set up and save to toAccountXXX
+		toAccountAddrList, toAccountAmountList, toBucketAddrList, toBucketIDList, toBucketAmountList, err := filterSetAutoDeposit(c, dist.RecipientList, dist.AmountList)
 		if err != nil {
 			return err
 		}
+
+		divAddrList, divAmountList, err := splitRecipients(chunkSize, toAccountAddrList, toAccountAmountList)
+		if err != nil {
+			return err
+		}
+
+		// Use the contract to distribute rewards to accounts.
+		fmt.Printf("Start Distribute Reward to voter account...")
+		var distrbutedCount uint64
 		for {
-			distrbutedCount, err := getDistributedCount(c, dist.DelegateName)
+			distrbutedCount, err = getDistributedCount(c, dist.DelegateName)
 			if err != nil {
 				return err
 			}
+
+			// distrbutedCount is all of need to reward count, Need to subtract the length of toBucketAddrList.
+			distrbutedCount -= uint64(len(toBucketAddrList))
+
 			// distribution is done for the delegate
-			if int(distrbutedCount) == len(dist.RecipientList) {
+			if int(distrbutedCount) == len(toAccountAddrList) {
 				break
 			}
 			if int(distrbutedCount)%chunkSize != 0 {
-				return fmt.Errorf("invalid distributed count, Delegate Name: %s, Distributed Count: %d, Number of Recipients: %d",
-					dist.DelegateName, distrbutedCount, len(dist.RecipientList))
+				return errors.New("invalid distributed count")
 			}
 			nextGroup := int(distrbutedCount) / chunkSize
 			if err := sendRewards(c, dist.DelegateName, endEpoch, tip, divAddrList[nextGroup], divAmountList[nextGroup]); err != nil {
 				return err
 			}
 		}
+
+		// Append bucket information to the list. For using the api to distribute the reward to the bucket.
+		for i := range toAccountAddrList {
+			allToBucketAddressList =
+				append(allToBucketAddressList,
+					toAccountAddrList[i])
+			allToBucketIDList =
+				append(allToBucketIDList,
+					toBucketIDList[i])
+			allToBucketAmountList =
+				append(allToBucketAmountList,
+					toBucketAmountList[i])
+			allToBucketDelegateNameList =
+				append(allToBucketDelegateNameList, dist.DelegateName)
+		}
 	}
-	return commitDistributions(c, endEpoch, delegateNames)
+
+	if _, err := model.CreateJob(tip, endEpoch, allToBucketDelegateNameList, allToBucketAddressList, allToBucketIDList, allToBucketAmountList); err != nil {
+		return err
+	}
+
+	if err := commitDistributions(c, endEpoch, delegateNames); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionInfo, error) {
@@ -166,6 +227,46 @@ func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionI
 		return nil, nil, nil, err
 	}
 	return big.NewInt(int64(endEpoch)), minTips, distributions, nil
+}
+
+func filterSetAutoDeposit(
+	c iotex.AuthedClient,
+	voterAddrList []common.Address,
+	amountList []*big.Int,
+) (toAccountAddrList []common.Address, toAccountAmountList []*big.Int,
+	toBucketAddrList []common.Address, toBucketIDList []uint64, toBucketAmountList []*big.Int,
+	err error) {
+	if len(voterAddrList) != len(amountList) {
+		return nil, nil, nil, nil, nil, fmt.Errorf("voterAddrList and amountList length are not equal.")
+	}
+
+	for i := range voterAddrList {
+		bucketID, err := deposit.GetBuckectID(c,
+			voterAddrList[i].String())
+		if err != nil {
+			return nil, nil, nil, nil, nil, err
+		}
+		if bucketID == -1 {
+			// Not set auto deposit.
+			toAccountAddrList = append(
+				toAccountAddrList,
+				voterAddrList[i])
+			toAccountAmountList = append(
+				toAccountAmountList,
+				amountList[i])
+		} else {
+			toBucketAddrList = append(
+				toBucketAddrList,
+				voterAddrList[i])
+			toBucketIDList = append(
+				toBucketIDList,
+				uint64(bucketID))
+			toBucketAmountList = append(
+				toBucketAmountList,
+				amountList[i])
+		}
+	}
+	return
 }
 
 func sendRewards(
