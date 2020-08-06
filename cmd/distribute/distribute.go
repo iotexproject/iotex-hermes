@@ -54,10 +54,10 @@ func distributeReward() error {
 		return err
 	}
 	if latestJob != nil {
-		if i, e := latestJob.IsComplate(); e != nil {
+		if i, e := latestJob.IsCompleted(); e != nil {
 			return e
 		} else if !i {
-			return fmt.Errorf("There are tasks: startEpoch %s, endEpoch %s is not completed for deposit.", latestJob.StartEpoch, latestJob.EndEpoch)
+			return fmt.Errorf("there are tasks: startEpoch %s, endEpoch %s is not completed for deposit", latestJob.StartEpoch, latestJob.EndEpoch)
 		}
 	}
 
@@ -117,34 +117,31 @@ func distributeReward() error {
 
 		// Use the contract to distribute rewards to accounts.
 		fmt.Printf("Start Distribute Reward to voter account...")
-		var distrbutedCount uint64
+		var distributedCount uint64
 		for {
-			distrbutedCount, err = getDistributedCount(c, dist.DelegateName)
+			distributedCount, err = getDistributedCount(c, dist.DelegateName)
 			if err != nil {
 				return err
 			}
 
-			// distrbutedCount is all of need to reward count, Need to subtract the length of toBucketAddrList.
-			distrbutedCount -= uint64(len(toBucketAddrList))
-
 			// distribution is done for the delegate
-			if int(distrbutedCount) == len(toAccountAddrList) {
+			if int(distributedCount) == len(toAccountAddrList) {
 				break
 			}
-			if int(distrbutedCount)%chunkSize != 0 {
+			if int(distributedCount)%chunkSize != 0 {
 				return errors.New("invalid distributed count")
 			}
-			nextGroup := int(distrbutedCount) / chunkSize
+			nextGroup := int(distributedCount) / chunkSize
 			if err := sendRewards(c, dist.DelegateName, endEpoch, tip, divAddrList[nextGroup], divAmountList[nextGroup]); err != nil {
 				return err
 			}
 		}
 
 		// Append bucket information to the list. For using the api to distribute the reward to the bucket.
-		for i := range toAccountAddrList {
+		for i := range toBucketAddrList {
 			allToBucketAddressList =
 				append(allToBucketAddressList,
-					toAccountAddrList[i])
+					toBucketAddrList[i])
 			allToBucketIDList =
 				append(allToBucketIDList,
 					toBucketIDList[i])
@@ -241,7 +238,7 @@ func filterSetAutoDeposit(
 	}
 
 	for i := range voterAddrList {
-		bucketID, err := deposit.GetBuckectID(c,
+		bucketID, err := deposit.GetBucketID(c,
 			voterAddrList[i].String())
 		if err != nil {
 			return nil, nil, nil, nil, nil, err

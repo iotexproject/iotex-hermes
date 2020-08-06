@@ -36,8 +36,8 @@ func depositToBucket() error {
 		return err
 	}
 
-	// If is already complate. return
-	if i, e := latestJob.IsComplate(); e != nil {
+	// If is already completed. return
+	if i, e := latestJob.IsCompleted(); e != nil {
 		return e
 	} else if i {
 		return nil
@@ -67,10 +67,18 @@ func depositToBucket() error {
 	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), account)
 
 	for i := range latestJob.Deposits {
-		if ic, e := latestJob.Deposits[i].IsComplate(); e != nil {
+		if ic, e := latestJob.Deposits[i].IsCompleted(); e != nil {
 			return e
 		} else if ic {
-			// If this voter is complated, continue next.
+			// If this voter is completed, continue next.
+			continue
+		}
+
+		if latestJob.Deposits[i].Validate() != nil {
+			err = latestJob.Deposits[i].UpdateStatus(model.StatusError)
+			if err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -82,12 +90,12 @@ func depositToBucket() error {
 		if err != nil {
 			return err
 		}
-		if err := latestJob.Deposits[i].Update(); err != nil {
+		if err := latestJob.Deposits[i].UpdateStatus(model.StatusCompleted); err != nil {
 			return err
 		}
 	}
 
 	// The loop did not let the function exit,
-	// indicating that all deposit have been complate, set job to complate
+	// indicating that all deposit have been completed, set job to completed
 	return latestJob.Update()
 }

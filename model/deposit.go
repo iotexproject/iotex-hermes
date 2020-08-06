@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	STATUS_OPEN = uint8(iota)
-	STATUS_COMPLATE
+	StatusOpen = uint8(iota)
+	StatusCompleted
+	StatusError
 )
 
 // Job defines a job structrue
@@ -54,19 +55,19 @@ func CreateJob(startEpoch, endEpoch *big.Int, delegateNameList []string, address
 
 func (j *Job) create(deposits []*Deposit) error {
 	if j == nil {
-		return fmt.Errorf("Job object is empty.")
+		return fmt.Errorf("job object is empty")
 	}
 
 	if err := loadKeys(); err != nil {
 		return err
 	}
 
-	signature, err := key.Sign(fmt.Sprintf("%s,%s,%d", j.StartEpoch, j.EndEpoch, STATUS_OPEN), privateKey)
+	signature, err := key.Sign(fmt.Sprintf("%s,%s,%d", j.StartEpoch, j.EndEpoch, StatusOpen), privateKey)
 	if err != nil {
 		return err
 	}
 	j.Signature = signature
-	j.Status = STATUS_OPEN
+	j.Status = StatusOpen
 	dbTran := Begin()
 	if err := dbTran.Create(j).Error; err != nil {
 		dbTran.Rollback()
@@ -74,13 +75,13 @@ func (j *Job) create(deposits []*Deposit) error {
 	}
 
 	for i := range deposits {
-		signature, err := key.Sign(fmt.Sprintf("%d,%s,%d", deposits[i].VoterBucketID, deposits[i].Amount, STATUS_OPEN), privateKey)
+		signature, err := key.Sign(fmt.Sprintf("%d,%s,%d", deposits[i].VoterBucketID, deposits[i].Amount, StatusOpen), privateKey)
 		if err != nil {
 			return err
 		}
 		deposits[i].Signature = signature
 		deposits[i].JobID = j.ID
-		deposits[i].Status = STATUS_OPEN
+		deposits[i].Status = StatusOpen
 		if err := dbTran.Create(deposits[i]).Error; err != nil {
 			db.Rollback()
 			return err
@@ -94,12 +95,12 @@ func (j *Job) Update() error {
 		return err
 	}
 
-	signature, err := key.Sign(fmt.Sprintf("%s,%s,%d", j.StartEpoch, j.EndEpoch, STATUS_OPEN), privateKey)
+	signature, err := key.Sign(fmt.Sprintf("%s,%s,%d", j.StartEpoch, j.EndEpoch, StatusCompleted), privateKey)
 	if err != nil {
 		return err
 	}
 
-	return DB().Model(j).Update(map[string]interface{}{"status": STATUS_COMPLATE, "signature": signature}).Error
+	return DB().Model(j).Update(map[string]interface{}{"status": StatusCompleted, "signature": signature}).Error
 }
 
 func GetLatest() (*Job, error) {
@@ -125,7 +126,7 @@ func GetLatest() (*Job, error) {
 
 func (j *Job) LoadDeposits() error {
 	if j.ID == 0 {
-		return fmt.Errorf("Can't load an empty job.")
+		return fmt.Errorf("can't load an empty job")
 	}
 	var deposits []Deposit
 	if err := DB().Model(j).Related(&deposits).Error; err != nil {
@@ -134,12 +135,6 @@ func (j *Job) LoadDeposits() error {
 
 	if err := loadKeys(); err != nil {
 		return err
-	}
-
-	for i := range deposits {
-		if err := key.Verify(fmt.Sprintf("%d,%s,%d", deposits[i].VoterBucketID, deposits[i].Amount, deposits[i].Status), deposits[i].Signature, publicKey); err != nil {
-			return err
-		}
 	}
 
 	j.Deposits = deposits
@@ -153,7 +148,7 @@ func (j *Job) Delete() error {
 	return DB().Delete(j).Error
 }
 
-func (j *Job) IsComplate() (bool, error) {
+func (j *Job) IsCompleted() (bool, error) {
 	if err := loadKeys(); err != nil {
 		return false, fmt.Errorf("can't load keys err: %v", err)
 	}
@@ -162,10 +157,10 @@ func (j *Job) IsComplate() (bool, error) {
 		return false, fmt.Errorf("verification fails for %s, err: %v", fmt.Sprintf("%s,%s,%d", j.StartEpoch, j.EndEpoch, j.Status), err)
 	}
 
-	return j.Status == STATUS_COMPLATE, nil
+	return j.Status == StatusCompleted, nil
 }
 
-// Deposit defines a Deposit structrue
+// Deposit defines a Deposit structure
 type Deposit struct {
 	ID            uint64 `gorm:"primary_key"`
 	CreatedAt     time.Time
@@ -180,27 +175,31 @@ type Deposit struct {
 	Signature     string `gorm:"type:varchar(64)"`
 }
 
-func (d *Deposit) Update() error {
+func (d *Deposit) UpdateStatus(status uint8) error {
 	if err := loadKeys(); err != nil {
 		return err
 	}
 
-	signature, err := key.Sign(fmt.Sprintf("%d,%s,%d", d.VoterBucketID, d.Amount, STATUS_COMPLATE), privateKey)
+	signature, err := key.Sign(fmt.Sprintf("%d,%s,%d", d.VoterBucketID, d.Amount, status), privateKey)
 	if err != nil {
 		return err
 	}
 
-	return DB().Model(d).Update(map[string]interface{}{"status": STATUS_COMPLATE, "signature": signature}).Error
+	return DB().Model(d).Update(map[string]interface{}{"status": status, "signature": signature}).Error
 }
 
-func (d *Deposit) IsComplate() (bool, error) {
+func (d *Deposit) IsCompleted() (bool, error) {
 	if err := loadKeys(); err != nil {
 		return false, fmt.Errorf("can't load keys err: %v", err)
 	}
 
-	if err := key.Verify(fmt.Sprintf("%d,%s,%d", d.VoterBucketID, d.Amount, d.Status), d.Signature, publicKey); err != nil {
-		return false, fmt.Errorf("verification fails for %s, err: %v", fmt.Sprintf("%d,%s,%d", d.VoterBucketID, d.Amount, d.Status), err)
+	return d.Status == StatusCompleted, nil
+}
+
+func (d *Deposit) Validate() error {
+	if err := loadKeys(); err != nil {
+		return fmt.Errorf("can't load keys err: %v", err)
 	}
 
-	return d.Status == STATUS_COMPLATE, nil
+	return key.Verify(fmt.Sprintf("%d,%s,%d", d.VoterBucketID, d.Amount, d.Status), d.Signature, publicKey)
 }

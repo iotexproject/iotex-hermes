@@ -33,27 +33,27 @@ func AddDeposit(
 	gasPrice, ok := big.NewInt(0).SetString(gasPriceStr, 10)
 	if !ok {
 		printError(delegateName, bucketID, amount,
-			fmt.Errorf("Set gasPrice faild. ENV GAS_PRICE set error, failed to convert string to big int"))
+			fmt.Errorf("set gasPrice faild. ENV GAS_PRICE set error, failed to convert string to big int"))
 		return hash.ZeroHash256, errors.New("failed to convert string to big int")
 	}
 	gasLimitStr := util.MustFetchNonEmptyParam("GAS_LIMIT")
 	gasLimit, err := strconv.Atoi(gasLimitStr)
 	if err != nil {
 		printError(delegateName, bucketID, amount,
-			fmt.Errorf("Set gasLimit faild. ENV GAS_LIMIT set error."))
+			fmt.Errorf("set gasLimit faild. ENV GAS_LIMIT set error"))
 		return hash.ZeroHash256, err
 	}
 	h, err := c.Staking().AddDeposit(bucketID, amount).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
 	if err != nil {
 		printError(delegateName, bucketID, amount,
-			fmt.Errorf("Execute addDeposit faild: %v", err))
+			fmt.Errorf("execute addDeposit faild: %v", err))
 		return hash.ZeroHash256, err
 	}
 	sleepIntervalStr := util.MustFetchNonEmptyParam("SLEEP_INTERVAL")
 	sleepInterval, err := strconv.Atoi(sleepIntervalStr)
 	if err != nil {
 		printError(delegateName, bucketID, amount,
-			fmt.Errorf("Set sleepInterval faild. ENV SLEEP_INTERVAL set error: %v", err))
+			fmt.Errorf("set sleepInterval faild. ENV SLEEP_INTERVAL set error: %v", err))
 		return hash.ZeroHash256, err
 	}
 	time.Sleep(time.Duration(sleepInterval) * time.Second)
@@ -63,17 +63,16 @@ func AddDeposit(
 	})
 	if err != nil {
 		printError(delegateName, bucketID, amount,
-			fmt.Errorf("Execute GetReceiptByAction faild: %v", err))
+			fmt.Errorf("execute GetReceiptByAction faild: %v", err))
 		return hash.ZeroHash256, err
 	}
 	if resp.ReceiptInfo.Receipt.Status != 1 {
 		printError(delegateName, bucketID, amount,
-			fmt.Errorf("Get Execute Status is not 1, add deposit staking failed: %x", h))
+			fmt.Errorf("get Execute Status is not 1, add deposit staking failed: %x", h))
 		return hash.ZeroHash256, errors.Errorf("add deposit staking failed: %x", h)
 	}
 
-	// Output log.
-	printSussess(delegateName, bucketID, amount)
+	printSuccess(delegateName, bucketID, amount)
 
 	return h, nil
 }
@@ -82,12 +81,12 @@ func printError(delegateName string, bucketID uint64, amount *big.Int, err error
 	fmt.Printf("Delegate Name: %s, Voter Bucket ID: %d, Group Total Amount: %s. Error: %v\n", delegateName, bucketID, amount, err)
 }
 
-func printSussess(delegateName string, bucketID uint64, amount *big.Int) {
+func printSuccess(delegateName string, bucketID uint64, amount *big.Int) {
 	fmt.Printf("Delegate Name: %s, Voter Bucket ID: %d, Group Total Amount: %s\n", delegateName, bucketID, amount)
 }
 
-// getBuclectID
-func GetBuckectID(c iotex.AuthedClient, voter string) (int64, error) {
+// GetBucketID query bucketId from contract
+func GetBucketID(c iotex.AuthedClient, voter string) (int64, error) {
 	cstring := util.MustFetchNonEmptyParam("AUTO_DEPOSIT_CONTRACT_ADDRESS")
 	caddr, err := address.FromString(cstring)
 	if err != nil {
