@@ -193,8 +193,8 @@ func sendRewards(
 	for _, amount := range amountList {
 		totalAmount.Add(totalAmount, amount)
 	}
-	fmt.Printf("Delegate Name: %s, Group Total Voter Count: %d, Group Total Amount: %s\n", delegateName,
-		len(voterAddrList), totalAmount.String())
+	fmt.Printf("Delegate Name: %s, Group Total Voter Count: %d, Group Total Amount: %s, Tip: %s\n", delegateName,
+		len(voterAddrList), totalAmount.String(), minTips.String())
 
 	name := stringToBytes32(delegateName)
 
@@ -300,6 +300,8 @@ func getMinTips(c iotex.AuthedClient) (*big.Int, error) {
 	if err := data.Unmarshal(&minTips); err != nil {
 		return nil, err
 	}
+
+	fmt.Printf("MultiSend Contract: %s, min tip: %s\n", cstring,  minTips.String())
 	return minTips, nil
 }
 

@@ -28,7 +28,8 @@ func MustFetchNonEmptyParam(key string) string {
 // GetVaultAccount returns the vault account given the password
 func GetVaultAccount(pwd string) (account.Account, error) {
 	// load the keystore file
-	ks := keystore.NewKeyStore("./", keystore.StandardScryptN, keystore.StandardScryptP)
+	// ks := keystore.NewKeyStore("./", keystore.StandardScryptN, keystore.StandardScryptP)
+	ks := keystore.NewKeyStore("/app/", keystore.StandardScryptN, keystore.StandardScryptP)
 	if len(ks.Accounts()) != 1 {
 		return nil, fmt.Errorf("found %d keys, expecting 1", len(ks.Accounts()))
 	}
