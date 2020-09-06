@@ -54,11 +54,11 @@ func main() {
 			log.Printf("waiting %d hours for next distribute", duration)
 			time.Sleep(duration * time.Hour)
 		}
-		err = claim.ClaimReward()
+		err = claim.Reward()
 		if err != nil {
 			log.Fatalf("claim reward error: %v\n", err)
 		}
-		err = distribute.DistributeReward()
+		err = distribute.Reward()
 		if err != nil {
 			log.Fatalf("distribute reward error: %v\n", err)
 		}

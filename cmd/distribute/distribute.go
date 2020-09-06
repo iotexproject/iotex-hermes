@@ -35,7 +35,7 @@ var DistributeCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
-		return DistributeReward()
+		return Reward()
 	},
 }
 
@@ -46,8 +46,8 @@ type DistributionInfo struct {
 	AmountList    []*big.Int
 }
 
-// DistributeReward distribute reward to voter group by delegate
-func DistributeReward() error {
+// Reward distribute reward to voter group by delegate
+func Reward() error {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	account, err := util.GetVaultAccount(pwd)
 	if err != nil {
