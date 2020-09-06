@@ -34,7 +34,7 @@ var ClaimCmd = &cobra.Command{
 	},
 }
 
-// Reward is claim reward from contract
+// ClaimReward is claim reward from contract
 func ClaimReward() error {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	account, err := util.GetVaultAccount(pwd)

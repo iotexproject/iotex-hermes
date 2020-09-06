@@ -533,7 +533,7 @@ func splitRecipients(chunkSize int, recipientAddrList []common.Address, amountLi
 
 // ioAddrToEvmAddr converts IoTeX address into evm address
 func ioAddrToEvmAddr(ioAddr string) (common.Address, error) {
-	// TODO remove
+	// temporary fix
 	if ioAddr == "io16y9wk2xnwurvtgmd2mds2gcdfe2lmzad6dcw29" {
 		ioAddr = "io16dkdajys8609qxf78wmmzssgfgvqkk0funzp0r"
 	}
