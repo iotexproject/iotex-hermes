@@ -30,11 +30,11 @@ var ClaimCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
-		return claimReward()
+		return ClaimReward()
 	},
 }
 
-func claimReward() error {
+func ClaimReward() error {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	account, err := util.GetVaultAccount(pwd)
 	if err != nil {

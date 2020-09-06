@@ -35,7 +35,7 @@ var DistributeCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
-		return distributeReward()
+		return DistributeReward()
 	},
 }
 
@@ -46,7 +46,7 @@ type DistributionInfo struct {
 	AmountList    []*big.Int
 }
 
-func distributeReward() error {
+func DistributeReward() error {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	account, err := util.GetVaultAccount(pwd)
 	if err != nil {
@@ -112,7 +112,7 @@ func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionI
 		return nil, nil, nil, err
 	}
 
-	lastEndEpoch, err := getLastEndEpoch(c)
+	lastEndEpoch, err := GetLastEndEpoch(c)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -124,31 +124,11 @@ func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionI
 	}
 	curEpoch := resp.ChainMeta.Epoch.Num
 
-	epochIntervalStr := util.MustFetchNonEmptyParam("EPOCH_INTERVAL")
-	epochInterval, err := strconv.Atoi(epochIntervalStr)
-	if err != nil {
-		return nil, nil, nil, err
-	}
+	endEpoch := startEpoch + 24
 
-	var endEpoch uint64
-	if lastEndEpoch == uint64(0) {
-		startEpoch, err = getContractStartEpoch(c)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		firstEndEpochStr := util.MustFetchNonEmptyParam("FIRST_END_EPOCH")
-		firstEndEpoch, err := strconv.Atoi(firstEndEpochStr)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		endEpoch = uint64(firstEndEpoch)
-	} else if epochInterval == 0 {
-		endEpoch = curEpoch - 2
-	} else {
-		endEpoch = lastEndEpoch + uint64(epochInterval)
-		for endEpoch >= curEpoch-1 {
-			endEpoch--
-		}
+	if endEpoch+2 > curEpoch {
+		return nil, nil, nil, fmt.Errorf("invalid end epoch, Current Epoch: %d, End Epoch: %d",
+			curEpoch, endEpoch)
 	}
 
 	if startEpoch > endEpoch {
@@ -301,7 +281,7 @@ func getMinTips(c iotex.AuthedClient) (*big.Int, error) {
 		return nil, err
 	}
 
-	fmt.Printf("MultiSend Contract: %s, min tip: %s\n", cstring,  minTips.String())
+	fmt.Printf("MultiSend Contract: %s, min tip: %s\n", cstring, minTips.String())
 	return minTips, nil
 }
 
@@ -326,7 +306,7 @@ func getContractStartEpoch(c iotex.AuthedClient) (uint64, error) {
 	return contractStartEpoch.Uint64(), nil
 }
 
-func getLastEndEpoch(c iotex.AuthedClient) (uint64, error) {
+func GetLastEndEpoch(c iotex.AuthedClient) (uint64, error) {
 	cstring := util.MustFetchNonEmptyParam("HERMES_CONTRACT_ADDRESS")
 	caddr, err := address.FromString(cstring)
 	if err != nil {

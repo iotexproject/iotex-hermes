@@ -7,14 +7,60 @@
 package main
 
 import (
-	"os"
+	"context"
+	"log"
+	"time"
 
-	"github.com/iotexproject/iotex-hermes/cmd"
+	"github.com/iotexproject/iotex-antenna-go/v2/account"
+	"github.com/iotexproject/iotex-antenna-go/v2/iotex"
+	"github.com/iotexproject/iotex-proto/golang/iotexapi"
+
+	"github.com/iotexproject/iotex-hermes/cmd/claim"
+	"github.com/iotexproject/iotex-hermes/cmd/distribute"
+	"github.com/iotexproject/iotex-hermes/util"
 )
 
 // main runs the hermes command
 func main() {
-	if err := cmd.RootCmd.Execute(); err != nil {
-		os.Exit(1)
+	endpoint := util.MustFetchNonEmptyParam("IO_ENDPOINT")
+	conn, err := iotex.NewDefaultGRPCConn(endpoint)
+	if err != nil {
+		log.Fatalf("construct grpc connection error: %v\n", err)
+	}
+	defer conn.Close()
+	emptyAccount, err := account.NewAccount()
+	if err != nil {
+		log.Fatalf("new empty account error: %v\n", err)
+	}
+	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), emptyAccount)
+
+	for {
+		lastEndEpoch, err := distribute.GetLastEndEpoch(c)
+		if err != nil {
+			log.Fatalf("get last end epoch error: %v\n", err)
+		}
+		startEpoch := lastEndEpoch + 1
+
+		resp, err := c.API().GetChainMeta(context.Background(), &iotexapi.GetChainMetaRequest{})
+		if err != nil {
+			log.Fatalf("get chain meta error: %v\n", err)
+		}
+		curEpoch := resp.ChainMeta.Epoch.Num
+
+		endEpoch := startEpoch + 24
+
+		if endEpoch+2 > curEpoch {
+			duration := time.Duration(endEpoch + 2 - curEpoch)
+			log.Printf("waiting %d hours for next distribute", duration)
+			time.Sleep(duration * time.Hour)
+		}
+		err = claim.ClaimReward()
+		if err != nil {
+			log.Fatalf("claim reward error: %v\n", err)
+		}
+		err = distribute.DistributeReward()
+		if err != nil {
+			log.Fatalf("distribute reward error: %v\n", err)
+		}
 	}
 }
