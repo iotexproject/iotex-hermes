@@ -46,6 +46,7 @@ type DistributionInfo struct {
 	AmountList    []*big.Int
 }
 
+// DistributeReward distribute reward to voter group by delegate
 func DistributeReward() error {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	account, err := util.GetVaultAccount(pwd)
@@ -306,6 +307,7 @@ func getContractStartEpoch(c iotex.AuthedClient) (uint64, error) {
 	return contractStartEpoch.Uint64(), nil
 }
 
+// GetLastEndEpoch get last end epoch from hermes contract
 func GetLastEndEpoch(c iotex.AuthedClient) (uint64, error) {
 	cstring := util.MustFetchNonEmptyParam("HERMES_CONTRACT_ADDRESS")
 	caddr, err := address.FromString(cstring)
