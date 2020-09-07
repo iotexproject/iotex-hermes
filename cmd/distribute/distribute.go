@@ -125,7 +125,7 @@ func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionI
 	}
 	curEpoch := resp.ChainMeta.Epoch.Num
 
-	endEpoch := startEpoch + 24
+	endEpoch := startEpoch + 23
 
 	if endEpoch+2 > curEpoch {
 		return nil, nil, nil, fmt.Errorf("invalid end epoch, Current Epoch: %d, End Epoch: %d",

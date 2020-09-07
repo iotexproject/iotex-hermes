@@ -47,7 +47,7 @@ func main() {
 		}
 		curEpoch := resp.ChainMeta.Epoch.Num
 
-		endEpoch := startEpoch + 24
+		endEpoch := startEpoch + 23
 
 		if endEpoch+2 > curEpoch {
 			duration := time.Duration(endEpoch + 2 - curEpoch)
