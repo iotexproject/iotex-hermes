@@ -53,6 +53,7 @@ func main() {
 			duration := time.Duration(endEpoch + 2 - curEpoch)
 			log.Printf("waiting %d hours for next distribute", duration)
 			time.Sleep(duration * time.Hour)
+			continue
 		}
 		err = claim.Reward()
 		if err != nil {
