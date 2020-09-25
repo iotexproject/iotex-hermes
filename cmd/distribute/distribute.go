@@ -25,6 +25,7 @@ import (
 	"github.com/shurcooL/graphql"
 	"github.com/spf13/cobra"
 
+	"github.com/iotexproject/iotex-hermes/cmd/dao"
 	"github.com/iotexproject/iotex-hermes/util"
 )
 
@@ -168,6 +169,35 @@ func sendRewards(
 	hermesABI, err := abi.JSON(strings.NewReader(HermesABI))
 	if err != nil {
 		return err
+	}
+
+	for i := 0; i < len(voterAddrList); i++ {
+		bucketID, err := GetBucketID(c, voterAddrList[i])
+		if err != nil {
+			fmt.Printf("Query bucketID from contract error: %v\n", err)
+			continue
+		}
+		if bucketID != -1 {
+			addr, err := address.FromBytes(voterAddrList[i][:])
+			if err != nil {
+				fmt.Printf("Convert address error: %v\n", err)
+				continue
+			}
+			drop := dao.DropRecord{
+				EndEpoch:     endEpoch.Uint64(),
+				DelegateName: delegateName,
+				Voter:        addr.String(),
+				Amount:       amountList[i].String(),
+				Index:        uint64(bucketID),
+				Status:       "new",
+			}
+			err = drop.Save(dao.DB())
+			if err != nil {
+				fmt.Printf("Save drop record error: %v\n", err)
+				continue
+			}
+			amountList[i] = big.NewInt(0)
+		}
 	}
 
 	totalAmount := new(big.Int).Set(minTips)

@@ -63,5 +63,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("distribute reward error: %v\n", err)
 		}
+
+		sender, err := distribute.NewSender()
+		if err != nil {
+			log.Fatalf("new sender error: %v\n", err)
+		}
+		sender.Send()
 	}
 }
