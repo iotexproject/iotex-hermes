@@ -154,12 +154,11 @@ func addDeposit(
 				continue
 			}
 			return hash.ZeroHash256, err
-		} else {
-			if resp.ReceiptInfo.Receipt.Status != 1 {
-				return hash.ZeroHash256, errors.Errorf("add deposit staking failed: %x", h)
-			}
-			return h, nil
 		}
+		if resp.ReceiptInfo.Receipt.Status != 1 {
+			return hash.ZeroHash256, errors.Errorf("add deposit staking failed: %x", h)
+		}
+		return h, nil
 	}
 	return hash.ZeroHash256, errors.Errorf("add deposit error by exhausted retry, index=%d, hash: %x", bucketID, h)
 }
