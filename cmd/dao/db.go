@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jinzhu/gorm"
+	// mysql dialects
 	_ "github.com/jinzhu/gorm/dialects/mysql"
 
 	"github.com/iotexproject/iotex-hermes/cmd/key"
@@ -15,6 +16,7 @@ var db *gorm.DB
 var privateKey *rsa.PrivateKey
 var publicKey *rsa.PublicKey
 
+// ConnectDatabase connect database
 func ConnectDatabase() error {
 	var err error
 	db, err = gorm.Open("mysql", util.MustFetchNonEmptyParam("DB_CONN"))
@@ -35,10 +37,12 @@ func ConnectDatabase() error {
 	return nil
 }
 
+// Transaction begin transaction
 func Transaction() *gorm.DB {
 	return db.Begin()
 }
 
+// DB export db
 func DB() *gorm.DB {
 	return db
 }

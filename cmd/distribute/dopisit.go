@@ -25,6 +25,7 @@ import (
 	"github.com/iotexproject/iotex-hermes/util"
 )
 
+// GetBucketID query bucketID from contract
 func GetBucketID(c iotex.AuthedClient, voter common.Address) (int64, error) {
 	cstring := util.MustFetchNonEmptyParam("AUTO_DEPOSIT_CONTRACT_ADDRESS")
 	caddr, err := address.FromString(cstring)
@@ -47,6 +48,7 @@ func GetBucketID(c iotex.AuthedClient, voter common.Address) (int64, error) {
 	return bucketID.Int64(), nil
 }
 
+// Sender send drop record
 type Sender struct {
 	Accounts []account.Account
 }
@@ -162,6 +164,7 @@ func addDeposit(
 	return hash.ZeroHash256, errors.Errorf("add deposit error by exhausted retry, index=%d, hash: %x", bucketID, h)
 }
 
+// Send send records
 func (s *Sender) Send() {
 	for {
 		records, err := dao.FindNewDropRecordByLimit(10000)
@@ -200,6 +203,7 @@ func (s *Sender) Send() {
 	}
 }
 
+// NewSender new sender instance
 func NewSender() (*Sender, error) {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	acc, err := util.GetVaultAccount(pwd)

@@ -738,6 +738,7 @@ const (
 		"type": "event"
 	}]`
 
+	// AutoDepositABI defines the ABI of auto deposit contract
 	AutoDepositABI = `[
     {
         "anonymous": false,

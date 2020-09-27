@@ -8,6 +8,7 @@ import (
 	"github.com/iotexproject/iotex-hermes/cmd/key"
 )
 
+// DropRecord drop record model
 type DropRecord struct {
 	gorm.Model
 
@@ -61,7 +62,7 @@ func (t *DropRecord) Verify() error {
 	return key.Verify(fmt.Sprintf("%s,%s,%s", t.DelegateName, t.Amount, t.Status), t.Signature, publicKey)
 }
 
-// FindDropRecordByLimit find by limit
+// FindNewDropRecordByLimit find by limit
 func FindNewDropRecordByLimit(limit int32) (result []DropRecord, err error) {
 	err = db.Limit(limit).Where("status = ?", "new").Find(&result).Error
 	return
