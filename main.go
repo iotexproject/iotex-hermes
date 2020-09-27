@@ -16,6 +16,7 @@ import (
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
 
 	"github.com/iotexproject/iotex-hermes/cmd/claim"
+	"github.com/iotexproject/iotex-hermes/cmd/dao"
 	"github.com/iotexproject/iotex-hermes/cmd/distribute"
 	"github.com/iotexproject/iotex-hermes/util"
 )
@@ -33,6 +34,11 @@ func main() {
 		log.Fatalf("new empty account error: %v\n", err)
 	}
 	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), emptyAccount)
+
+	err = dao.ConnectDatabase()
+	if err != nil {
+		log.Fatalf("create database error: %v\n", err)
+	}
 
 	for {
 		lastEndEpoch, err := distribute.GetLastEndEpoch(c)
