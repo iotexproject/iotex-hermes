@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,6 @@ import (
 	"github.com/iotexproject/iotex-antenna-go/v2/iotex"
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
 	"github.com/pkg/errors"
-	"google.golang.org/grpc"
 
 	"github.com/iotexproject/iotex-hermes/cmd/dao"
 	"github.com/iotexproject/iotex-hermes/util"
@@ -60,12 +58,12 @@ type accountSender struct {
 }
 
 func (s *accountSender) send() {
-	conn, err := grpc.DialContext(context.Background(), util.MustFetchNonEmptyParam("IO_ENDPOINT"), grpc.WithBlock(), grpc.WithInsecure())
+	endpoint := util.MustFetchNonEmptyParam("IO_ENDPOINT")
+	conn, err := iotex.NewDefaultGRPCConn(endpoint)
 	if err != nil {
 		log.Fatalf("create grpc error: %v", err)
 	}
 	defer conn.Close()
-
 	client := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), s.account)
 
 	for _, record := range s.records {
@@ -121,11 +119,7 @@ func addDeposit(
 	if !ok {
 		return hash.ZeroHash256, errors.New("failed to convert string to big int")
 	}
-	gasLimitStr := util.MustFetchNonEmptyParam("GAS_LIMIT")
-	gasLimit, err := strconv.Atoi(gasLimitStr)
-	if err != nil {
-		return hash.ZeroHash256, err
-	}
+	gasLimit := 10000
 
 	gas := big.NewInt(0).Mul(gasPrice, big.NewInt(int64(gasLimit)))
 	if amount.Cmp(gas) <= 0 {
@@ -137,12 +131,7 @@ func addDeposit(
 	if err != nil {
 		return hash.ZeroHash256, err
 	}
-	sleepIntervalStr := util.MustFetchNonEmptyParam("SLEEP_INTERVAL")
-	sleepInterval, err := strconv.Atoi(sleepIntervalStr)
-	if err != nil {
-		return hash.ZeroHash256, err
-	}
-	time.Sleep(time.Duration(sleepInterval) * time.Second)
+	time.Sleep(5 * time.Second)
 
 	for i := 0; i < 30; i++ {
 		resp, err := c.API().GetReceiptByAction(ctx, &iotexapi.GetReceiptByActionRequest{
@@ -165,6 +154,7 @@ func addDeposit(
 
 // Send send records
 func (s *Sender) Send() {
+	fmt.Println("Begin add deposit to bucket")
 	for {
 		records, err := dao.FindNewDropRecordByLimit(10000)
 		if err != nil {
@@ -200,6 +190,7 @@ func (s *Sender) Send() {
 			wg.Wait()
 		}
 	}
+	fmt.Println("Add deposit to bucket successful.")
 }
 
 // NewSender new sender instance
