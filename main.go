@@ -43,7 +43,7 @@ func main() {
 	retry := 0
 	for {
 		if retry == 3 {
-			log.Fatalf("retry 3 times failure, exit.")
+			log.Fatalf("retry 2 times failure, exit.")
 		}
 		lastEndEpoch, err := distribute.GetLastEndEpoch(c)
 		if err != nil {

@@ -12,11 +12,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/gogo/protobuf/proto"
 	"github.com/iotexproject/go-pkgs/hash"
 	"github.com/iotexproject/iotex-address/address"
 	"github.com/iotexproject/iotex-antenna-go/v2/account"
 	"github.com/iotexproject/iotex-antenna-go/v2/iotex"
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
+	"github.com/iotexproject/iotex-proto/golang/iotextypes"
 	"github.com/pkg/errors"
 
 	"github.com/iotexproject/iotex-hermes/cmd/dao"
@@ -57,6 +59,8 @@ type accountSender struct {
 	waitGroup *sync.WaitGroup
 }
 
+var bucketStateMap map[uint64]bool
+
 func (s *accountSender) send() {
 	endpoint := util.MustFetchNonEmptyParam("IO_ENDPOINT")
 	conn, err := iotex.NewDefaultGRPCConn(endpoint)
@@ -79,7 +83,7 @@ func (s *accountSender) send() {
 		if !ok {
 			log.Printf("can't convert staking amount: %v\n", record.Amount)
 		}
-		h, err := addDeposit(client, record.ID, record.Index, amount)
+		h, err := addDepositOrTransfer(client, record.ID, record.Index, record.Voter, amount)
 		if err != nil {
 			log.Printf("add deposit %d error: %v\n", record.ID, err)
 			record.Status = "error"
@@ -106,10 +110,57 @@ func (s *accountSender) send() {
 	}
 }
 
-func addDeposit(
+func checkAutoStake(c iotex.AuthedClient, bucketID uint64) (bool, error) {
+	state, ok := bucketStateMap[bucketID]
+	if ok {
+		return state, nil
+	}
+
+	method := &iotexapi.ReadStakingDataMethod{
+		Method: iotexapi.ReadStakingDataMethod_BUCKETS_BY_INDEXES,
+	}
+	methodBytes, err := proto.Marshal(method)
+	if err != nil {
+		return false, err
+	}
+	arguments := &iotexapi.ReadStakingDataRequest{
+		Request: &iotexapi.ReadStakingDataRequest_BucketsByIndexes{
+			BucketsByIndexes: &iotexapi.ReadStakingDataRequest_VoteBucketsByIndexes{
+				Index: []uint64{bucketID},
+			},
+		},
+	}
+	argumentsBytes, err := proto.Marshal(arguments)
+	if err != nil {
+		return false, err
+	}
+
+	res, err := c.API().ReadState(context.Background(), &iotexapi.ReadStateRequest{
+		ProtocolID: []byte("staking"),
+		MethodName: methodBytes,
+		Arguments:  [][]byte{argumentsBytes},
+		Height:     "",
+	})
+	if err != nil {
+		return false, err
+	}
+	var result iotextypes.VoteBucketList
+	err = proto.Unmarshal(res.Data, &result)
+	if err != nil {
+		return false, err
+	}
+	if len(result.Buckets) == 0 {
+		return false, fmt.Errorf("can't find bucket %d", bucketID)
+	}
+	bucketStateMap[bucketID] = result.Buckets[0].AutoStake
+	return result.Buckets[0].AutoStake, nil
+}
+
+func addDepositOrTransfer(
 	c iotex.AuthedClient,
 	recordID uint,
 	bucketID uint64,
+	voter string,
 	amount *big.Int,
 ) (hash.Hash256, error) {
 	ctx := context.Background()
@@ -127,7 +178,19 @@ func addDeposit(
 		return hash.ZeroHash256, nil
 	}
 
-	h, err := c.Staking().AddDeposit(bucketID, big.NewInt(0).Sub(amount, gas)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
+	autoStake, err := checkAutoStake(c, bucketID)
+	if err != nil {
+		log.Printf("check auto stake bucket error: %v", err)
+	}
+
+	var h hash.Hash256
+	if autoStake {
+		to, _ := address.FromString(voter)
+		h, err = c.Transfer(to, big.NewInt(0).Sub(amount, gas)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
+	} else {
+		h, err = c.Staking().AddDeposit(bucketID, big.NewInt(0).Sub(amount, gas)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
+	}
+
 	if err != nil {
 		return hash.ZeroHash256, err
 	}

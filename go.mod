@@ -9,7 +9,7 @@ require (
 	github.com/iotexproject/go-pkgs v0.1.1
 	github.com/iotexproject/iotex-address v0.2.1
 	github.com/iotexproject/iotex-antenna-go/v2 v2.3.3
-	github.com/iotexproject/iotex-proto v0.2.6-0.20200409230611-748f6ab69ca5
+	github.com/iotexproject/iotex-proto v0.3.0
 	github.com/jinzhu/gorm v1.9.16 // indirect
 	github.com/onsi/ginkgo v1.8.0 // indirect
 	github.com/onsi/gomega v1.5.0 // indirect
