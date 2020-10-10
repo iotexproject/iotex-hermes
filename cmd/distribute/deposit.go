@@ -59,7 +59,7 @@ type accountSender struct {
 	waitGroup *sync.WaitGroup
 }
 
-var bucketStateMap map[uint64]bool
+var bucketStateMap = make(map[uint64]bool)
 
 func (s *accountSender) send() {
 	endpoint := util.MustFetchNonEmptyParam("IO_ENDPOINT")
