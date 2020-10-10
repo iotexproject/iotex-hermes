@@ -184,7 +184,7 @@ func addDepositOrTransfer(
 	}
 
 	var h hash.Hash256
-	if autoStake {
+	if !autoStake {
 		to, _ := address.FromString(voter)
 		h, err = c.Transfer(to, big.NewInt(0).Sub(amount, gas)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
 	} else {
