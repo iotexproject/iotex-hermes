@@ -25,6 +25,7 @@ import (
 	"github.com/shurcooL/graphql"
 	"github.com/spf13/cobra"
 
+	"github.com/iotexproject/iotex-hermes/cmd/dao"
 	"github.com/iotexproject/iotex-hermes/util"
 )
 
@@ -35,7 +36,7 @@ var DistributeCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
-		return distributeReward()
+		return Reward()
 	},
 }
 
@@ -46,7 +47,8 @@ type DistributionInfo struct {
 	AmountList    []*big.Int
 }
 
-func distributeReward() error {
+// Reward distribute reward to voter group by delegate
+func Reward() error {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	account, err := util.GetVaultAccount(pwd)
 	if err != nil {
@@ -112,7 +114,7 @@ func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionI
 		return nil, nil, nil, err
 	}
 
-	lastEndEpoch, err := getLastEndEpoch(c)
+	lastEndEpoch, err := GetLastEndEpoch(c)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -124,31 +126,11 @@ func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionI
 	}
 	curEpoch := resp.ChainMeta.Epoch.Num
 
-	epochIntervalStr := util.MustFetchNonEmptyParam("EPOCH_INTERVAL")
-	epochInterval, err := strconv.Atoi(epochIntervalStr)
-	if err != nil {
-		return nil, nil, nil, err
-	}
+	endEpoch := startEpoch + 23
 
-	var endEpoch uint64
-	if lastEndEpoch == uint64(0) {
-		startEpoch, err = getContractStartEpoch(c)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		firstEndEpochStr := util.MustFetchNonEmptyParam("FIRST_END_EPOCH")
-		firstEndEpoch, err := strconv.Atoi(firstEndEpochStr)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		endEpoch = uint64(firstEndEpoch)
-	} else if epochInterval == 0 {
-		endEpoch = curEpoch - 2
-	} else {
-		endEpoch = lastEndEpoch + uint64(epochInterval)
-		for endEpoch >= curEpoch-1 {
-			endEpoch--
-		}
+	if endEpoch+2 > curEpoch {
+		return nil, nil, nil, fmt.Errorf("invalid end epoch, Current Epoch: %d, End Epoch: %d",
+			curEpoch, endEpoch)
 	}
 
 	if startEpoch > endEpoch {
@@ -189,12 +171,41 @@ func sendRewards(
 		return err
 	}
 
+	for i := 0; i < len(voterAddrList); i++ {
+		bucketID, err := GetBucketID(c, voterAddrList[i])
+		if err != nil {
+			fmt.Printf("Query bucketID from contract error: %v\n", err)
+			continue
+		}
+		if bucketID != -1 {
+			addr, err := address.FromBytes(voterAddrList[i][:])
+			if err != nil {
+				fmt.Printf("Convert address error: %v\n", err)
+				continue
+			}
+			drop := dao.DropRecord{
+				EndEpoch:     endEpoch.Uint64(),
+				DelegateName: delegateName,
+				Voter:        addr.String(),
+				Amount:       amountList[i].String(),
+				Index:        uint64(bucketID),
+				Status:       "new",
+			}
+			err = drop.Save(dao.DB())
+			if err != nil {
+				fmt.Printf("Save drop record error: %v\n", err)
+				continue
+			}
+			amountList[i] = big.NewInt(0)
+		}
+	}
+
 	totalAmount := new(big.Int).Set(minTips)
 	for _, amount := range amountList {
 		totalAmount.Add(totalAmount, amount)
 	}
-	fmt.Printf("Delegate Name: %s, Group Total Voter Count: %d, Group Total Amount: %s\n", delegateName,
-		len(voterAddrList), totalAmount.String())
+	fmt.Printf("Delegate Name: %s, Group Total Voter Count: %d, Group Total Amount: %s, Tip: %s\n", delegateName,
+		len(voterAddrList), totalAmount.String(), minTips.String())
 
 	name := stringToBytes32(delegateName)
 
@@ -300,6 +311,8 @@ func getMinTips(c iotex.AuthedClient) (*big.Int, error) {
 	if err := data.Unmarshal(&minTips); err != nil {
 		return nil, err
 	}
+
+	fmt.Printf("MultiSend Contract: %s, min tip: %s\n", cstring, minTips.String())
 	return minTips, nil
 }
 
@@ -324,7 +337,8 @@ func getContractStartEpoch(c iotex.AuthedClient) (uint64, error) {
 	return contractStartEpoch.Uint64(), nil
 }
 
-func getLastEndEpoch(c iotex.AuthedClient) (uint64, error) {
+// GetLastEndEpoch get last end epoch from hermes contract
+func GetLastEndEpoch(c iotex.AuthedClient) (uint64, error) {
 	cstring := util.MustFetchNonEmptyParam("HERMES_CONTRACT_ADDRESS")
 	caddr, err := address.FromString(cstring)
 	if err != nil {
@@ -549,6 +563,10 @@ func splitRecipients(chunkSize int, recipientAddrList []common.Address, amountLi
 
 // ioAddrToEvmAddr converts IoTeX address into evm address
 func ioAddrToEvmAddr(ioAddr string) (common.Address, error) {
+	// temporary fix
+	if ioAddr == "io16y9wk2xnwurvtgmd2mds2gcdfe2lmzad6dcw29" {
+		ioAddr = "io16dkdajys8609qxf78wmmzssgfgvqkk0funzp0r"
+	}
 	address, err := address.FromString(ioAddr)
 	if err != nil {
 		return common.Address{}, err
