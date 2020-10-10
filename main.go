@@ -40,39 +40,62 @@ func main() {
 		log.Fatalf("create database error: %v\n", err)
 	}
 
+	retry := 0
 	for {
+		if retry == 3 {
+			log.Fatalf("retry 3 times failure, exit.")
+		}
 		lastEndEpoch, err := distribute.GetLastEndEpoch(c)
 		if err != nil {
-			log.Fatalf("get last end epoch error: %v\n", err)
+			log.Printf("get last end epoch error: %v\n", err)
+			continue
 		}
 		startEpoch := lastEndEpoch + 1
 
 		resp, err := c.API().GetChainMeta(context.Background(), &iotexapi.GetChainMetaRequest{})
 		if err != nil {
-			log.Fatalf("get chain meta error: %v\n", err)
+			log.Printf("get chain meta error: %v\n", err)
+			continue
 		}
 		curEpoch := resp.ChainMeta.Epoch.Num
 
 		endEpoch := startEpoch + 23
 
 		if endEpoch+2 > curEpoch {
-			duration := time.Duration(endEpoch + 2 - curEpoch)
-			log.Printf("waiting %d hours for next distribute", duration)
-			time.Sleep(duration * time.Hour)
-			continue
+			sender, err := distribute.NewSender()
+			if err != nil {
+				log.Printf("new sender error: %v\n", err)
+				continue
+			}
+			sender.Send()
+
+			resp, err := c.API().GetChainMeta(context.Background(), &iotexapi.GetChainMetaRequest{})
+			if err != nil {
+				log.Printf("get chain meta error: %v\n", err)
+				continue
+			}
+			curEpoch = resp.ChainMeta.Epoch.Num
+			if endEpoch+2-curEpoch > 0 {
+				duration := time.Duration(endEpoch + 2 - curEpoch)
+				log.Printf("waiting %d hours for next distribute", duration)
+				time.Sleep(duration * time.Hour)
+				continue
+			}
 		}
 		err = claim.Reward()
 		if err != nil {
-			log.Fatalf("claim reward error: %v\n", err)
+			log.Printf("claim reward error: %v\n", err)
+			continue
 		}
 		err = distribute.Reward()
 		if err != nil {
-			log.Fatalf("distribute reward error: %v\n", err)
+			log.Printf("distribute reward error: %v\n", err)
+			continue
 		}
-
 		sender, err := distribute.NewSender()
 		if err != nil {
-			log.Fatalf("new sender error: %v\n", err)
+			log.Printf("new sender error: %v\n", err)
+			continue
 		}
 		sender.Send()
 	}
