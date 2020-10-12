@@ -18,6 +18,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/iotexproject/go-pkgs/hash"
 	"github.com/iotexproject/iotex-address/address"
 	"github.com/iotexproject/iotex-antenna-go/v2/iotex"
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
@@ -224,23 +225,8 @@ func sendRewards(
 	if err != nil {
 		return err
 	}
-	sleepIntervalStr := util.MustFetchNonEmptyParam("SLEEP_INTERVAL")
-	sleepInterval, err := strconv.Atoi(sleepIntervalStr)
-	if err != nil {
-		return err
-	}
-	time.Sleep(time.Duration(sleepInterval) * time.Second)
 
-	resp, err := c.API().GetReceiptByAction(ctx, &iotexapi.GetReceiptByActionRequest{
-		ActionHash: hex.EncodeToString(h[:]),
-	})
-	if err != nil {
-		return err
-	}
-	if resp.ReceiptInfo.Receipt.Status != 1 {
-		return errors.Errorf("distributeRewards failed: %x", h)
-	}
-	return nil
+	return checkActionReceipt(c, h)
 }
 
 func commitDistributions(c iotex.AuthedClient, endEpoch *big.Int, delegateNames [][32]byte) error {
@@ -272,23 +258,11 @@ func commitDistributions(c iotex.AuthedClient, endEpoch *big.Int, delegateNames 
 	if err != nil {
 		return err
 	}
-	sleepIntervalStr := util.MustFetchNonEmptyParam("SLEEP_INTERVAL")
-	sleepInterval, err := strconv.Atoi(sleepIntervalStr)
+
+	err = checkActionReceipt(c, h)
 	if err != nil {
 		return err
 	}
-	time.Sleep(time.Duration(sleepInterval) * time.Second)
-
-	resp, err := c.API().GetReceiptByAction(ctx, &iotexapi.GetReceiptByActionRequest{
-		ActionHash: hex.EncodeToString(h[:]),
-	})
-	if err != nil {
-		return err
-	}
-	if resp.ReceiptInfo.Receipt.Status != 1 {
-		return errors.Errorf("commitDistributions failed: %x", h)
-	}
-
 	fmt.Println("successfully distribute rewards")
 	return nil
 }
@@ -579,4 +553,28 @@ func stringToBytes32(delegateName string) [32]byte {
 	var name [32]byte
 	copy(name[:], delegateName)
 	return name
+}
+
+func checkActionReceipt(c iotex.AuthedClient, hash hash.Hash256) error {
+	time.Sleep(5 * time.Second)
+	var resp *iotexapi.GetReceiptByActionResponse
+	var err error
+	for i := 0; i < 30; i++ {
+		resp, err = c.API().GetReceiptByAction(context.Background(), &iotexapi.GetReceiptByActionRequest{
+			ActionHash: hex.EncodeToString(hash[:]),
+		})
+		if err != nil {
+			if strings.Contains(err.Error(), "code = NotFound") {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			return err
+		}
+		if resp.ReceiptInfo.Receipt.Status != 1 {
+			return errors.Errorf("action %x check receipt failed", hash)
+		}
+		return nil
+	}
+	fmt.Printf("action %x check receipt not found\n", hash)
+	return err
 }

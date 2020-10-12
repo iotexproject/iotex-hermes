@@ -105,5 +105,6 @@ func main() {
 			continue
 		}
 		sender.Send()
+		retry = 0
 	}
 }
