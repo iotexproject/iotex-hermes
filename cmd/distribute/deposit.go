@@ -12,7 +12,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 	"github.com/iotexproject/go-pkgs/hash"
 	"github.com/iotexproject/iotex-address/address"
 	"github.com/iotexproject/iotex-antenna-go/v2/account"
@@ -171,7 +171,7 @@ func addDepositOrTransfer(
 	if !ok {
 		return hash.ZeroHash256, errors.New("failed to convert string to big int")
 	}
-	gasLimit := 11000
+	gasLimit := 13000
 
 	gas := big.NewInt(0).Mul(gasPrice, big.NewInt(int64(gasLimit)))
 	if amount.Cmp(gas) <= 0 {
