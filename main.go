@@ -49,6 +49,7 @@ func main() {
 		if err != nil {
 			log.Printf("get last end epoch error: %v\n", err)
 			retry++
+			time.Sleep(5 * time.Minute)
 			continue
 		}
 		startEpoch := lastEndEpoch + 1
@@ -57,6 +58,7 @@ func main() {
 		if err != nil {
 			log.Printf("get chain meta error: %v\n", err)
 			retry++
+			time.Sleep(5 * time.Minute)
 			continue
 		}
 		curEpoch := resp.ChainMeta.Epoch.Num
@@ -68,6 +70,7 @@ func main() {
 			if err != nil {
 				log.Printf("new sender error: %v\n", err)
 				retry++
+				time.Sleep(5 * time.Minute)
 				continue
 			}
 			sender.Send()
@@ -76,6 +79,7 @@ func main() {
 			if err != nil {
 				log.Printf("get chain meta error: %v\n", err)
 				retry++
+				time.Sleep(5 * time.Minute)
 				continue
 			}
 			curEpoch = resp.ChainMeta.Epoch.Num
@@ -90,18 +94,21 @@ func main() {
 		if err != nil {
 			log.Printf("claim reward error: %v\n", err)
 			retry++
+			time.Sleep(5 * time.Minute)
 			continue
 		}
 		err = distribute.Reward()
 		if err != nil {
 			log.Printf("distribute reward error: %v\n", err)
 			retry++
+			time.Sleep(5 * time.Minute)
 			continue
 		}
 		sender, err := distribute.NewSender()
 		if err != nil {
 			log.Printf("new sender error: %v\n", err)
 			retry++
+			time.Sleep(5 * time.Minute)
 			continue
 		}
 		sender.Send()
