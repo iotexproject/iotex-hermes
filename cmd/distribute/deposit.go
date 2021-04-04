@@ -12,7 +12,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 	"github.com/iotexproject/go-pkgs/hash"
 	"github.com/iotexproject/iotex-address/address"
 	"github.com/iotexproject/iotex-antenna-go/v2/account"
@@ -83,7 +83,7 @@ func (s *accountSender) send() {
 		if !ok {
 			log.Printf("can't convert staking amount: %v\n", record.Amount)
 		}
-		h, err := addDepositOrTransfer(client, record.ID, record.Index, record.Voter, amount)
+		h, err := addDepositOrTransfer(client, record.ID, record.Index, record.Voter, record.DelegateName, amount)
 		if err != nil {
 			log.Printf("add deposit %d error: %v\n", record.ID, err)
 			record.Status = "error"
@@ -161,6 +161,7 @@ func addDepositOrTransfer(
 	recordID uint,
 	bucketID uint64,
 	voter string,
+	delegateName string,
 	amount *big.Int,
 ) (hash.Hash256, error) {
 	ctx := context.Background()
@@ -170,7 +171,7 @@ func addDepositOrTransfer(
 	if !ok {
 		return hash.ZeroHash256, errors.New("failed to convert string to big int")
 	}
-	gasLimit := 10000
+	gasLimit := 13000
 
 	gas := big.NewInt(0).Mul(gasPrice, big.NewInt(int64(gasLimit)))
 	if amount.Cmp(gas) <= 0 {
@@ -188,7 +189,7 @@ func addDepositOrTransfer(
 		to, _ := address.FromString(voter)
 		h, err = c.Transfer(to, big.NewInt(0).Sub(amount, gas)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
 	} else {
-		h, err = c.Staking().AddDeposit(bucketID, big.NewInt(0).Sub(amount, gas)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
+		h, err = c.Staking().AddDeposit(bucketID, big.NewInt(0).Sub(amount, gas)).SetPayload([]byte("delegate:" + delegateName)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
 	}
 
 	if err != nil {
@@ -206,6 +207,10 @@ func addDepositOrTransfer(
 				continue
 			}
 			return hash.ZeroHash256, err
+		}
+		if resp.ReceiptInfo.Receipt.Status == 204 {
+			delete(bucketStateMap, bucketID)
+			return addDepositOrTransfer(c, recordID, bucketID, voter, delegateName, amount)
 		}
 		if resp.ReceiptInfo.Receipt.Status != 1 {
 			return hash.ZeroHash256, errors.Errorf("add deposit staking failed: %x", h)
