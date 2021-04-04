@@ -559,7 +559,7 @@ func checkActionReceipt(c iotex.AuthedClient, hash hash.Hash256) error {
 	time.Sleep(5 * time.Second)
 	var resp *iotexapi.GetReceiptByActionResponse
 	var err error
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 120; i++ {
 		resp, err = c.API().GetReceiptByAction(context.Background(), &iotexapi.GetReceiptByActionRequest{
 			ActionHash: hex.EncodeToString(hash[:]),
 		})
