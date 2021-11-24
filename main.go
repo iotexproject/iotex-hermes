@@ -99,7 +99,14 @@ func main() {
 			time.Sleep(5 * time.Minute)
 			continue
 		}
-		err = distribute.Reward()
+		lastDeposit, err := dao.SumByEndEpoch(lastEndEpoch)
+		if err != nil {
+			log.Printf("sum last deposit error: %v\n", err)
+			retry++
+			time.Sleep(5 * time.Minute)
+			continue
+		}
+		err = distribute.Reward(notifier, lastDeposit, sender.Accounts[0].Address())
 		if err != nil {
 			log.Printf("distribute reward error: %v\n", err)
 			retry++

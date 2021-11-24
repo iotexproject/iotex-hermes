@@ -2,6 +2,7 @@ package dao
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/jinzhu/gorm"
 
@@ -66,4 +67,18 @@ func (t *DropRecord) Verify() error {
 func FindNewDropRecordByLimit(limit int32) (result []DropRecord, err error) {
 	err = db.Limit(limit).Where("status = ?", "new").Find(&result).Error
 	return
+}
+
+type sumResult struct {
+	Total string
+}
+
+func SumByEndEpoch(endEpoch uint64) (*big.Int, error) {
+	var result float64
+
+	stmt, _ := db.DB().Prepare("select sum(amount) as total from drop_records where end_epoch = ?")
+	err := stmt.QueryRow(endEpoch).Scan(&result)
+	sum, _ := big.NewFloat(result).Int(nil)
+
+	return sum, err
 }

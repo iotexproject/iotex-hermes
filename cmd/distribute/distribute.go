@@ -37,7 +37,7 @@ var DistributeCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
-		return Reward()
+		return Reward(nil, nil, nil)
 	},
 }
 
@@ -49,7 +49,7 @@ type DistributionInfo struct {
 }
 
 // Reward distribute reward to voter group by delegate
-func Reward() error {
+func Reward(notifier *Notifier, lastDeposit *big.Int, sender address.Address) error {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	account, err := util.GetVaultAccount(pwd)
 	if err != nil {
@@ -72,6 +72,21 @@ func Reward() error {
 	endEpoch, tip, distributions, err := getDistribution(c)
 	if err != nil {
 		return err
+	}
+
+	if lastDeposit != nil {
+		res, err := c.API().GetAccount(context.Background(), &iotexapi.GetAccountRequest{Address: sender.String()})
+		if err != nil {
+			return err
+		}
+		bal, _ := new(big.Int).SetString(res.AccountMeta.Balance, 10)
+		if bal.Cmp(lastDeposit) < 0 {
+			hash, _ := c.Transfer(sender, lastDeposit).SetGasPrice(big.NewInt(1000000000000)).SetGasLimit(10000).Call(context.Background())
+			if notifier != nil {
+				notifier.SendMessage(fmt.Sprintf("deposit %s to sender with hash: %s", lastDeposit.String(), hex.EncodeToString(hash[:])))
+			}
+			time.Sleep(5 * time.Second)
+		}
 	}
 
 	// call distribution contract to send out rewards
