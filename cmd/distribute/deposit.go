@@ -51,12 +51,14 @@ func GetBucketID(c iotex.AuthedClient, voter common.Address) (int64, error) {
 // Sender send drop record
 type Sender struct {
 	Accounts []account.Account
+	Notifier *Notifier
 }
 
 type accountSender struct {
 	account   account.Account
 	records   []dao.DropRecord
 	waitGroup *sync.WaitGroup
+	notifier  *Notifier
 }
 
 var bucketStateMap = make(map[uint64]bool)
@@ -92,6 +94,7 @@ func (s *accountSender) send() {
 			if err != nil {
 				log.Fatalf("save error drop records %d:%s error: %v", record.ID, record.Voter, err)
 			}
+			s.notifier.SendMessage(fmt.Sprintf("Deposit %d error: %v", record.ID, err))
 			continue
 		}
 		record.Hash = hex.EncodeToString(h[:])
@@ -229,7 +232,7 @@ func (s *Sender) Send() {
 			log.Fatalf("query drop records error: %v", err)
 		}
 		if len(records) == 0 {
-			break
+			time.Sleep(5 * time.Minute)
 		}
 
 		shard := len(s.Accounts)
@@ -258,22 +261,18 @@ func (s *Sender) Send() {
 			wg.Wait()
 		}
 	}
-	fmt.Println("Add deposit to bucket successful.")
 }
 
 // NewSender new sender instance
-func NewSender() (*Sender, error) {
+func NewSender(notifier *Notifier) (*Sender, error) {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
-	acc, err := util.GetVaultAccount(pwd)
+	acc, err := util.GetAccount("./sender/.sender.json", pwd)
 	if err != nil {
 		return nil, err
-	}
-	// verify the account matches the reward address
-	if acc.Address().String() != util.MustFetchNonEmptyParam("VAULT_ADDRESS") {
-		return nil, fmt.Errorf("key and address do not match")
 	}
 
 	return &Sender{
 		Accounts: []account.Account{acc},
+		Notifier: notifier,
 	}, nil
 }

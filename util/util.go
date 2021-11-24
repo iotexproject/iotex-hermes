@@ -8,10 +8,12 @@ package util
 
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
+	ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/iotexproject/go-pkgs/crypto"
 	"github.com/iotexproject/iotex-antenna-go/v2/account"
 )
@@ -36,5 +38,22 @@ func GetVaultAccount(pwd string) (account.Account, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error decrypting the vault private key")
 	}
+	return account.PrivateKeyToAccount(pk)
+}
+
+func GetAccount(path, passphrase string) (account.Account, error) {
+	keyJSON, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	key, err := keystore.DecryptKey(keyJSON, passphrase)
+	if err != nil {
+		return nil, err
+	}
+	pk, err := crypto.BytesToPrivateKey(ethCrypto.FromECDSA(key.PrivateKey))
+	if err != nil {
+		return nil, err
+	}
+
 	return account.PrivateKeyToAccount(pk)
 }

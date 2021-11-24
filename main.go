@@ -40,6 +40,17 @@ func main() {
 		log.Fatalf("create database error: %v\n", err)
 	}
 
+	notifier, err := distribute.NewNotifier()
+	if err != nil {
+		log.Fatalf("new notifier error: %v\n", err)
+	}
+
+	sender, err := distribute.NewSender(notifier)
+	if err != nil {
+		log.Fatalf("new notifier error: %v\n", err)
+	}
+	go sender.Send()
+
 	retry := 0
 	for {
 		if retry == 3 {
@@ -66,15 +77,6 @@ func main() {
 		endEpoch := startEpoch + 23
 
 		if endEpoch+2 > curEpoch {
-			sender, err := distribute.NewSender()
-			if err != nil {
-				log.Printf("new sender error: %v\n", err)
-				retry++
-				time.Sleep(5 * time.Minute)
-				continue
-			}
-			sender.Send()
-
 			resp, err := c.API().GetChainMeta(context.Background(), &iotexapi.GetChainMetaRequest{})
 			if err != nil {
 				log.Printf("get chain meta error: %v\n", err)
@@ -104,14 +106,6 @@ func main() {
 			time.Sleep(5 * time.Minute)
 			continue
 		}
-		sender, err := distribute.NewSender()
-		if err != nil {
-			log.Printf("new sender error: %v\n", err)
-			retry++
-			time.Sleep(5 * time.Minute)
-			continue
-		}
-		sender.Send()
 		retry = 0
 	}
 }
