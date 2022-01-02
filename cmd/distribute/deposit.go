@@ -88,13 +88,15 @@ func (s *accountSender) send() {
 		h, err := addDepositOrTransfer(client, record.ID, record.Index, record.Voter, record.DelegateName, amount)
 		if err != nil {
 			log.Printf("add deposit %d error: %v\n", record.ID, err)
-			record.Status = "error"
-			record.ErrorMessage = err.Error()
-			err = record.Save(dao.DB())
-			if err != nil {
-				log.Fatalf("save error drop records %d:%s error: %v", record.ID, record.Voter, err)
-			}
 			s.notifier.SendMessage(fmt.Sprintf("Deposit %d error: %v", record.ID, err))
+			if !strings.HasSuffix(err.Error(), "insufficient funds for gas * price + value") {
+				record.Status = "error"
+				record.ErrorMessage = err.Error()
+				err = record.Save(dao.DB())
+				if err != nil {
+					log.Fatalf("save error drop records %d:%s error: %v", record.ID, record.Voter, err)
+				}
+			}
 			continue
 		}
 		record.Hash = hex.EncodeToString(h[:])
