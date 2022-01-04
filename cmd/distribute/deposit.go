@@ -240,8 +240,9 @@ func (s *Sender) Send() {
 		shard := len(s.Accounts)
 		if len(records) < shard || shard == 1 {
 			sender := &accountSender{
-				account: s.Accounts[0],
-				records: records,
+				account:  s.Accounts[0],
+				records:  records,
+				notifier: s.Notifier,
 			}
 			sender.send()
 		} else {
@@ -257,6 +258,7 @@ func (s *Sender) Send() {
 					account:   s.Accounts[i],
 					records:   records[i*size : end],
 					waitGroup: &wg,
+					notifier:  s.Notifier,
 				}
 				go sender.send()
 			}
