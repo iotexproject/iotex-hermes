@@ -69,16 +69,22 @@ func FindNewDropRecordByLimit(limit int32) (result []DropRecord, err error) {
 	return
 }
 
-type sumResult struct {
-	Total string
-}
-
-func SumByEndEpoch(endEpoch uint64) (*big.Int, error) {
+func SumByEndEpoch(endEpoch uint64) (*big.Int, uint64, error) {
 	var result float64
 
 	stmt, _ := db.DB().Prepare("select sum(amount) as total from drop_records where end_epoch = ?")
 	err := stmt.QueryRow(endEpoch).Scan(&result)
+	if err != nil {
+		return nil, 0, err
+	}
 	sum, _ := big.NewFloat(result).Int(nil)
 
-	return sum, err
+	var maxEndEpoch uint64
+	stmt, _ = db.DB().Prepare("select max(end_epoch) as end_epoch from drop_records")
+	err = stmt.QueryRow().Scan(&maxEndEpoch)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return sum, maxEndEpoch, err
 }

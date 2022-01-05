@@ -230,6 +230,7 @@ func (s *Sender) Send() {
 	fmt.Println("Begin add deposit to bucket")
 	for {
 		records, err := dao.FindNewDropRecordByLimit(10000)
+		s.Notifier.SendMessage(fmt.Sprintf("begin send %d compound hermes rewards", len(records)))
 		if err != nil {
 			log.Fatalf("query drop records error: %v", err)
 		}

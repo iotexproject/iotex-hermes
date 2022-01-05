@@ -49,7 +49,7 @@ type DistributionInfo struct {
 }
 
 // Reward distribute reward to voter group by delegate
-func Reward(notifier *Notifier, lastDeposit *big.Int, sender address.Address) error {
+func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender address.Address) error {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	account, err := util.GetVaultAccount(pwd)
 	if err != nil {
@@ -74,13 +74,10 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, sender address.Address) er
 		return err
 	}
 
+	notifier.SendMessage(fmt.Sprintf("Begin send %d epoch hermes rewards", endEpoch.Uint64()))
+
 	if lastDeposit != nil {
-		res, err := c.API().GetAccount(context.Background(), &iotexapi.GetAccountRequest{Address: sender.String()})
-		if err != nil {
-			return err
-		}
-		bal, _ := new(big.Int).SetString(res.AccountMeta.Balance, 10)
-		if bal.Cmp(lastDeposit) < 0 {
+		if lastEpoch != endEpoch.Uint64() {
 			hash, _ := c.Transfer(sender, lastDeposit).SetGasPrice(big.NewInt(1000000000000)).SetGasLimit(10000).Call(context.Background())
 			if notifier != nil {
 				notifier.SendMessage(fmt.Sprintf("deposit %s to sender with hash: %s", lastDeposit.String(), hex.EncodeToString(hash[:])))

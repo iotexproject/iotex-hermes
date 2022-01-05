@@ -11,6 +11,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/iotexproject/iotex-address/address"
 	"github.com/iotexproject/iotex-antenna-go/v2/account"
 	"github.com/iotexproject/iotex-antenna-go/v2/iotex"
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
@@ -44,12 +45,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("new notifier error: %v\n", err)
 	}
-
-	sender, err := distribute.NewSender(notifier)
-	if err != nil {
-		log.Fatalf("new notifier error: %v\n", err)
-	}
-	go sender.Send()
 
 	retry := 0
 	for {
@@ -99,14 +94,20 @@ func main() {
 			time.Sleep(5 * time.Minute)
 			continue
 		}
-		lastDeposit, err := dao.SumByEndEpoch(lastEndEpoch)
+		lastDeposit, lastEpoch, err := dao.SumByEndEpoch(lastEndEpoch)
 		if err != nil {
 			log.Printf("sum last deposit error: %v\n", err)
 			retry++
-			time.Sleep(5 * time.Minute)
 			continue
 		}
-		err = distribute.Reward(notifier, lastDeposit, sender.Accounts[0].Address())
+
+		sender, err := address.FromString(util.MustFetchNonEmptyParam("SENDER_ADDR"))
+		if err != nil {
+			log.Printf("get sender address error: %v\n", err)
+			retry++
+			continue
+		}
+		err = distribute.Reward(notifier, lastDeposit, lastEpoch, sender)
 		if err != nil {
 			log.Printf("distribute reward error: %v\n", err)
 			retry++
