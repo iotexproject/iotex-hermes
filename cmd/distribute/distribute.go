@@ -37,7 +37,7 @@ var DistributeCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
-		return Reward(nil, nil, nil)
+		return Reward(nil, nil, 0, nil)
 	},
 }
 
