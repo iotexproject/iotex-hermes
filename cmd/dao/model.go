@@ -90,6 +90,11 @@ func FindByVoterAndStatus(voter, status string) (result []DropRecord, err error)
 	return
 }
 
+func FindByStatus(status string) (result []DropRecord, err error) {
+	err = db.Where("status = ?", status).Find(&result).Error
+	return
+}
+
 func SumByEndEpoch(endEpoch uint64) (*big.Int, uint64, error) {
 	var result float64
 

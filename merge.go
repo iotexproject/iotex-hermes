@@ -37,6 +37,7 @@ func main() {
 				log.Fatalf("save merged record error: %v\n", err)
 			}
 		}
+		rows[0].Signature = ""
 		rows[0].Amount = amount.String()
 		if err = rows[0].Save(tx); err != nil {
 			tx.Rollback()
