@@ -31,7 +31,7 @@ func main() {
 		for i := 1; i < len(rows); i++ {
 			temp, _ := new(big.Int).SetString(rows[i].Amount, 10)
 			amount = new(big.Int).Add(amount, temp)
-			rows[i].Status = fmt.Sprintf("merged-%d", rows[i].ID)
+			rows[i].Status = fmt.Sprintf("merged-%d", rows[0].ID)
 			if err = rows[i].Save(tx); err != nil {
 				tx.Rollback()
 				log.Fatalf("save merged record error: %v\n", err)
