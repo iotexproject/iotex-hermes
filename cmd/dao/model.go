@@ -69,6 +69,27 @@ func FindNewDropRecordByLimit(limit int32) (result []DropRecord, err error) {
 	return
 }
 
+func FindVotersByStatus(status string) (result []string, err error) {
+	stmt, _ := db.DB().Prepare("select distinct voter from drop_records where status = '" + status + "'")
+	rows, err := stmt.Query()
+	if err != nil {
+		return
+	}
+	for rows.Next() {
+		var row string
+		if err = rows.Scan(&row); err != nil {
+			return
+		}
+		result = append(result, row)
+	}
+	return
+}
+
+func FindByVoterAndStatus(voter, status string) (result []DropRecord, err error) {
+	err = db.Where("voter = ? and status = ?", voter, status).Find(&result).Error
+	return
+}
+
 func SumByEndEpoch(endEpoch uint64) (*big.Int, uint64, error) {
 	var result float64
 
