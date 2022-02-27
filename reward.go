@@ -94,12 +94,12 @@ func main() {
 			time.Sleep(5 * time.Minute)
 			continue
 		}
-		lastDeposit, lastEpoch, err := dao.SumByEndEpoch(lastEndEpoch)
-		if err != nil {
-			log.Printf("sum last deposit error: %v\n", err)
-			retry++
-			continue
-		}
+		// _, lastEpoch, err := dao.SumByEndEpoch(lastEndEpoch)
+		// if err != nil {
+		// 	log.Printf("sum last deposit error: %v\n", err)
+		// 	retry++
+		// 	continue
+		// }
 
 		sender, err := address.FromString(util.MustFetchNonEmptyParam("SENDER_ADDR"))
 		if err != nil {
@@ -107,7 +107,7 @@ func main() {
 			retry++
 			continue
 		}
-		err = distribute.Reward(notifier, lastDeposit, lastEpoch, sender)
+		err = distribute.Reward(notifier, nil, 0, sender)
 		if err != nil {
 			log.Printf("distribute reward error: %v\n", err)
 			retry++

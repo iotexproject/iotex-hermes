@@ -202,7 +202,7 @@ func sendRewards(
 				Voter:        addr.String(),
 				Amount:       amountList[i].String(),
 				Index:        uint64(bucketID),
-				Status:       "new",
+				Status:       "pending",
 			}
 			err = drop.Save(dao.DB())
 			if err != nil {
