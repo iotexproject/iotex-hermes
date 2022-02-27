@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -96,6 +97,8 @@ func (s *accountSender) send() {
 				if err != nil {
 					log.Fatalf("save error drop records %d:%s error: %v", record.ID, record.Voter, err)
 				}
+			} else {
+				os.Exit(1)
 			}
 			continue
 		}
@@ -230,13 +233,14 @@ func (s *Sender) Send() {
 	fmt.Println("Begin add deposit to bucket")
 	for {
 		records, err := dao.FindNewDropRecordByLimit(10000)
-		s.Notifier.SendMessage(fmt.Sprintf("begin send %d compound hermes rewards", len(records)))
 		if err != nil {
 			log.Fatalf("query drop records error: %v", err)
 		}
 		if len(records) == 0 {
 			time.Sleep(5 * time.Minute)
+			continue
 		}
+		s.Notifier.SendMessage(fmt.Sprintf("begin send %d compound hermes rewards", len(records)))
 
 		shard := len(s.Accounts)
 		if len(records) < shard || shard == 1 {
