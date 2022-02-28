@@ -12,7 +12,7 @@ func main() {
 		log.Fatalf("create database error: %v\n", err)
 	}
 
-	rows, err := dao.FindByStatus("error_signature")
+	rows, err := dao.FindByStatus("pending")
 	if err != nil {
 		log.Fatalf("query records by status error: %v\n", err)
 	}

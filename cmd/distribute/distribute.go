@@ -153,6 +153,11 @@ func mergeCompound() (*big.Int, error) {
 		if len(rows) < 2 {
 			amount, _ := new(big.Int).SetString(rows[0].Amount, 10)
 			total = new(big.Int).Add(total, amount)
+			rows[0].Status = "new"
+			rows[0].Signature = ""
+			if err = rows[0].Save(dao.DB()); err != nil {
+				return nil, fmt.Errorf("save merged to record error: %v", err)
+			}
 			continue
 		}
 		tx := dao.Transaction()
