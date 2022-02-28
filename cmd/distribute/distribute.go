@@ -45,6 +45,7 @@ var DistributeCmd = &cobra.Command{
 type DistributionInfo struct {
 	DelegateName  string
 	RecipientList []common.Address
+	Total         *big.Int
 	AmountList    []*big.Int
 }
 
@@ -74,16 +75,8 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 		return err
 	}
 
-	notifier.SendMessage(fmt.Sprintf("Begin send %d epoch hermes rewards", endEpoch.Uint64()))
-
-	if lastDeposit != nil {
-		if lastEpoch != endEpoch.Uint64() {
-			hash, _ := c.Transfer(sender, lastDeposit).SetGasPrice(big.NewInt(1000000000000)).SetGasLimit(10000).Call(context.Background())
-			if notifier != nil {
-				notifier.SendMessage(fmt.Sprintf("deposit %s to sender with hash: %s", lastDeposit.String(), hex.EncodeToString(hash[:])))
-			}
-			time.Sleep(5 * time.Second)
-		}
+	if notifier != nil {
+		notifier.SendMessage(fmt.Sprintf("Begin send %d epoch hermes rewards", endEpoch.Uint64()))
 	}
 
 	// call distribution contract to send out rewards
@@ -93,7 +86,9 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 		return err
 	}
 	delegateNames := make([][32]byte, 0, len(distributions))
+	total := big.NewInt(0)
 	for _, dist := range distributions {
+		fmt.Printf("%s total rewards: %s", dist.DelegateName, dist.Total.String())
 		delegateNames = append(delegateNames, stringToBytes32(dist.DelegateName))
 		divAddrList, divAmountList, err := splitRecipients(chunkSize, dist.RecipientList, dist.AmountList)
 		if err != nil {
@@ -118,7 +113,70 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 			}
 		}
 	}
-	return commitDistributions(c, endEpoch, delegateNames)
+	if notifier != nil {
+		notifier.SendMessage(fmt.Sprintf("epoch %d total rewards: %s", endEpoch, total.String()))
+	}
+	err = commitDistributions(c, endEpoch, delegateNames)
+	if err != nil {
+		return err
+	}
+	total, err = mergeCompound()
+	if err != nil {
+		return err
+	}
+
+	hash, _ := c.Transfer(sender, total).SetGasPrice(big.NewInt(1000000000000)).SetGasLimit(10000).Call(context.Background())
+	if notifier != nil {
+		notifier.SendMessage(fmt.Sprintf("deposit %s to sender with hash: %s", total.String(), hex.EncodeToString(hash[:])))
+	}
+	time.Sleep(20 * time.Second)
+	err = checkActionReceipt(c, hash)
+	if err != nil {
+		if notifier != nil {
+			notifier.SendMessage(fmt.Sprintf("send deposit sender action %s error: %v", hex.EncodeToString(hash[:]), err))
+		}
+	}
+	return nil
+}
+
+func mergeCompound() (*big.Int, error) {
+	voters, err := dao.FindVotersByStatus("pending")
+	if err != nil {
+		return nil, fmt.Errorf("query new voters error: %v", err)
+	}
+	total := big.NewInt(0)
+	for _, voter := range voters {
+		rows, err := dao.FindByVoterAndStatus(voter, "pending")
+		if err != nil {
+			return nil, fmt.Errorf("query new rewards by voter error: %v", err)
+		}
+		if len(rows) < 2 {
+			amount, _ := new(big.Int).SetString(rows[0].Amount, 10)
+			total = new(big.Int).Add(total, amount)
+			continue
+		}
+		tx := dao.Transaction()
+		amount, _ := new(big.Int).SetString(rows[0].Amount, 10)
+		for i := 1; i < len(rows); i++ {
+			temp, _ := new(big.Int).SetString(rows[i].Amount, 10)
+			amount = new(big.Int).Add(amount, temp)
+			rows[i].Status = fmt.Sprintf("merged-%d", rows[0].ID)
+			if err = rows[i].Save(tx); err != nil {
+				tx.Rollback()
+				return nil, fmt.Errorf("save merged record error: %v", err)
+			}
+		}
+		total = new(big.Int).Add(total, amount)
+		rows[0].Status = "new"
+		rows[0].Signature = ""
+		rows[0].Amount = amount.String()
+		if err = rows[0].Save(tx); err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("save merged to record error: %v", err)
+		}
+		tx.Commit()
+	}
+	return total, nil
 }
 
 func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionInfo, error) {
@@ -481,6 +539,7 @@ func getBookkeeping(startEpoch uint64, epochCount uint64, rewardAddress string) 
 
 		recipientAddrList := make([]common.Address, 0, len(distributionMap))
 		amountList := make([]*big.Int, 0, len(distributionMap))
+		total := big.NewInt(0)
 		for _, k := range keys {
 			caddr, err := ioAddrToEvmAddr(k)
 			if err != nil {
@@ -488,11 +547,13 @@ func getBookkeeping(startEpoch uint64, epochCount uint64, rewardAddress string) 
 			}
 			recipientAddrList = append(recipientAddrList, caddr)
 			amountList = append(amountList, distributionMap[k])
+			total = new(big.Int).Add(total, distributionMap[k])
 		}
 
 		distributions = append(distributions, &DistributionInfo{
 			DelegateName:  string(hermesDistribution.DelegateName),
 			RecipientList: recipientAddrList,
+			Total:         total,
 			AmountList:    amountList,
 		})
 	}

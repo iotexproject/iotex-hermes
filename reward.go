@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -87,13 +88,14 @@ func main() {
 				continue
 			}
 		}
-		err = claim.Reward()
+		amount, err := claim.Reward()
 		if err != nil {
 			log.Printf("claim reward error: %v\n", err)
 			retry++
 			time.Sleep(5 * time.Minute)
 			continue
 		}
+		notifier.SendMessage(fmt.Sprintf("Claimed hermes rewards %s", amount.String()))
 		// _, lastEpoch, err := dao.SumByEndEpoch(lastEndEpoch)
 		// if err != nil {
 		// 	log.Printf("sum last deposit error: %v\n", err)

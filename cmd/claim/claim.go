@@ -35,17 +35,17 @@ var ClaimCmd = &cobra.Command{
 }
 
 // Reward is claim reward from contract
-func Reward() error {
+func Reward() (*big.Int, error) {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	account, err := util.GetVaultAccount(pwd)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	endpoint := util.MustFetchNonEmptyParam("IO_ENDPOINT")
 	conn, err := iotex.NewDefaultGRPCConn(endpoint)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer conn.Close()
 	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), account)
@@ -53,7 +53,7 @@ func Reward() error {
 	// get current epoch and block height
 	resp, err := c.API().GetChainMeta(context.Background(), &iotexapi.GetChainMetaRequest{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	curEpoch := resp.ChainMeta.Epoch.Num
 	curHeight := resp.ChainMeta.Height
@@ -63,10 +63,11 @@ func Reward() error {
 
 	unclaimedBalance, err := getUnclaimedBalance(c)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fmt.Printf("Unclaimed Balance: %s\n", unclaimedBalance.String())
-	return claim(c, unclaimedBalance)
+	err = claim(c, unclaimedBalance)
+	return unclaimedBalance, err
 }
 
 func getUnclaimedBalance(c iotex.AuthedClient) (*big.Int, error) {
