@@ -30,7 +30,8 @@ var ClaimCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
-		return Reward()
+		_, err := Reward()
+		return err
 	},
 }
 
