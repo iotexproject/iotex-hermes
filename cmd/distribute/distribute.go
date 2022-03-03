@@ -88,7 +88,8 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 	delegateNames := make([][32]byte, 0, len(distributions))
 	total := big.NewInt(0)
 	for _, dist := range distributions {
-		fmt.Printf("%s total rewards: %s", dist.DelegateName, dist.Total.String())
+		fmt.Printf("%s total rewards: %s\n", dist.DelegateName, dist.Total.String())
+		total = new(big.Int).Add(total, dist.Total)
 		delegateNames = append(delegateNames, stringToBytes32(dist.DelegateName))
 		divAddrList, divAmountList, err := splitRecipients(chunkSize, dist.RecipientList, dist.AmountList)
 		if err != nil {
@@ -127,14 +128,18 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 
 	hash, _ := c.Transfer(sender, total).SetGasPrice(big.NewInt(1000000000000)).SetGasLimit(10000).Call(context.Background())
 	if notifier != nil {
-		notifier.SendMessage(fmt.Sprintf("deposit %s to sender with hash: %s", total.String(), hex.EncodeToString(hash[:])))
+		notifier.SendMessage(fmt.Sprintf("transfer %s to compound sender with hash: %s", total.String(), hex.EncodeToString(hash[:])))
 	}
 	time.Sleep(20 * time.Second)
 	err = checkActionReceipt(c, hash)
 	if err != nil {
 		if notifier != nil {
-			notifier.SendMessage(fmt.Sprintf("send deposit sender action %s error: %v", hex.EncodeToString(hash[:]), err))
+			notifier.SendMessage(fmt.Sprintf("send transfer sender action %s error: %v", hex.EncodeToString(hash[:]), err))
 		}
+	}
+
+	if notifier != nil {
+		notifier.SendMessage(fmt.Sprintf("Complete epoch %d hermes rewards", endEpoch))
 	}
 	return nil
 }
