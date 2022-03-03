@@ -126,6 +126,20 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 		return err
 	}
 
+	acc, err := c.API().GetAccount(context.Background(), &iotexapi.GetAccountRequest{
+		Address: c.Account().Address().String(),
+	})
+	if err != nil {
+		return err
+	}
+	balance, _ := new(big.Int).SetString(acc.AccountMeta.Balance, 10)
+	if balance.Cmp(total) < 0 {
+		fmt.Printf("Account balance less than compound rewards: %s < %s\n", balance.String(), total.String())
+		if notifier != nil {
+			notifier.SendMessage(fmt.Sprintf("Account balance less than compound rewards: %s < %s", balance.String(), total.String()))
+		}
+		total = new(big.Int).Sub(balance, big.NewInt(1000000000000000000))
+	}
 	hash, _ := c.Transfer(sender, total).SetGasPrice(big.NewInt(1000000000000)).SetGasLimit(10000).Call(context.Background())
 	if notifier != nil {
 		notifier.SendMessage(fmt.Sprintf("transfer %s to compound sender with hash: %s", total.String(), hex.EncodeToString(hash[:])))
