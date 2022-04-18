@@ -465,7 +465,6 @@ func getDistributedCount(c iotex.AuthedClient, delegateName string) (uint64, err
 func getBookkeeping(startEpoch uint64, epochCount uint64, rewardAddress string) ([]*DistributionInfo, error) {
 	type query struct {
 		Hermes struct {
-			Exist              graphql.Boolean
 			HermesDistribution []struct {
 				DelegateName       graphql.String
 				RewardDistribution []struct {
@@ -477,48 +476,40 @@ func getBookkeeping(startEpoch uint64, epochCount uint64, rewardAddress string) 
 				WaiveServiceFee     graphql.Boolean
 				Refund              graphql.String
 			}
-		} `graphql:"hermes(startEpoch: $startEpoch, epochCount: $epochCount, rewardAddress: $rewardAddress, waiverThreshold: $waiverThreshold)"`
+		} `graphql:"Hermes(startEpoch: $startEpoch, epochCount: $epochCount, rewardAddress: $rewardAddress)"`
 	}
 
 	analyticsEndpoint := util.MustFetchNonEmptyParam("ANALYTICS_ENDPOINT")
 
 	gqlClient := graphql.NewClient(analyticsEndpoint, nil)
 
-	waiverThresholdStr := util.MustFetchNonEmptyParam("WAIVER_THRESHOLD")
-	waiverThreshold, err := strconv.Atoi(waiverThresholdStr)
-	if err != nil {
-		return nil, err
-	}
-
 	// make sure every epoch does not miss hermes info
 	for epoch := startEpoch; epoch < startEpoch+epochCount; epoch++ {
 		tempVariables := map[string]interface{}{
-			"startEpoch":      graphql.Int(epoch),
-			"epochCount":      graphql.Int(1),
-			"rewardAddress":   graphql.String(rewardAddress),
-			"waiverThreshold": graphql.Int(waiverThreshold),
+			"startEpoch":    graphql.Int(epoch),
+			"epochCount":    graphql.Int(1),
+			"rewardAddress": graphql.String(rewardAddress),
 		}
 		var tempOutput query
 		if err := gqlClient.Query(context.Background(), &tempOutput, tempVariables); err != nil {
 			return nil, err
 		}
-		if !tempOutput.Hermes.Exist {
+		if len(tempOutput.Hermes.HermesDistribution) == 0 {
 			return nil, errors.New(fmt.Sprintf("bookkeeping info doesn't exist for Epoch %d\n", epoch))
 		}
 	}
 
 	variables := map[string]interface{}{
-		"startEpoch":      graphql.Int(startEpoch),
-		"epochCount":      graphql.Int(epochCount),
-		"rewardAddress":   graphql.String(rewardAddress),
-		"waiverThreshold": graphql.Int(waiverThreshold),
+		"startEpoch":    graphql.Int(startEpoch),
+		"epochCount":    graphql.Int(epochCount),
+		"rewardAddress": graphql.String(rewardAddress),
 	}
 	var output query
 	if err := gqlClient.Query(context.Background(), &output, variables); err != nil {
 		return nil, err
 	}
 
-	if !output.Hermes.Exist {
+	if len(output.Hermes.HermesDistribution) == 0 {
 		return nil, errors.New("bookkeeping info doesn't exist within the epoch range")
 	}
 
@@ -538,6 +529,7 @@ func getBookkeeping(startEpoch uint64, epochCount uint64, rewardAddress string) 
 			return nil, errors.New("failed to convert string to big int")
 		}
 		// charge fees
+		var err error
 		serviceFee := big.NewInt(0)
 		if !hermesDistribution.WaiveServiceFee {
 			if serviceFee, refund, err = calculateServiceFee(int64(hermesDistribution.VoterCount), refund); err != nil {
