@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -88,19 +87,19 @@ func (s *accountSender) send() {
 		}
 		h, err := addDepositOrTransfer(client, record.ID, record.Index, record.Voter, record.DelegateName, amount)
 		if err != nil {
-			log.Printf("add deposit %d error: %v\n", record.ID, err)
-			s.notifier.SendMessage(fmt.Sprintf("Deposit %d error: %v", record.ID, err))
 			if !strings.HasSuffix(err.Error(), "insufficient funds for gas * price + value") {
+				log.Printf("add deposit %d error: %v\n", record.ID, err)
+				s.notifier.SendMessage(fmt.Sprintf("Deposit %d error: %v", record.ID, err))
 				record.Status = "error"
 				record.ErrorMessage = err.Error()
 				err = record.Save(dao.DB())
 				if err != nil {
 					log.Fatalf("save error drop records %d:%s error: %v", record.ID, record.Voter, err)
 				}
-			} else {
-				os.Exit(1)
+				continue
 			}
-			continue
+			time.Sleep(30 * time.Minute)
+			break
 		}
 		record.Hash = hex.EncodeToString(h[:])
 		record.Signature = ""
@@ -179,6 +178,7 @@ func addDepositOrTransfer(
 	if !ok {
 		return hash.ZeroHash256, errors.New("failed to convert string to big int")
 	}
+	// TODO change to 10000?
 	gasLimit := 13000
 
 	gas := big.NewInt(0).Mul(gasPrice, big.NewInt(int64(gasLimit)))
@@ -240,7 +240,7 @@ func (s *Sender) Send() {
 			time.Sleep(5 * time.Minute)
 			continue
 		}
-		s.Notifier.SendMessage(fmt.Sprintf("begin send %d compound hermes rewards", len(records)))
+		s.Notifier.SendMessage(fmt.Sprintf("Begin send %d compound hermes rewards", len(records)))
 
 		shard := len(s.Accounts)
 		if len(records) < shard || shard == 1 {
