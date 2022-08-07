@@ -197,7 +197,7 @@ func addDepositOrTransfer(
 		to, _ := address.FromString(voter)
 		h, err = c.Transfer(to, big.NewInt(0).Sub(amount, gas)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
 	} else {
-		h, err = c.Staking().AddDeposit(bucketID, big.NewInt(0).Sub(amount, gas)).SetPayload([]byte("delegate:" + delegateName)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
+		h, err = c.Staking().AddDeposit(bucketID, big.NewInt(0).Sub(amount, gas)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
 	}
 
 	if err != nil {
