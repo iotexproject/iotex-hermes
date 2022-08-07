@@ -22,6 +22,7 @@ import (
 	"github.com/iotexproject/iotex-address/address"
 	"github.com/iotexproject/iotex-antenna-go/v2/iotex"
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
+	"github.com/jinzhu/gorm"
 	"github.com/pkg/errors"
 	"github.com/shurcooL/graphql"
 	"github.com/spf13/cobra"
@@ -85,16 +86,34 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 	if err != nil {
 		return err
 	}
+	chargeFeeStr := util.MustFetchNonEmptyParam("CHARGE_FEE")
+	chargeFee, _ := new(big.Int).SetString(chargeFeeStr, 10)
+	minRewardsStr := util.MustFetchNonEmptyParam("MIN_REWARDS")
+	minRewards, _ := new(big.Int).SetString(minRewardsStr, 10)
+
 	delegateNames := make([][32]byte, 0, len(distributions))
 	total := big.NewInt(0)
 	for _, dist := range distributions {
 		fmt.Printf("%s total rewards: %s\n", dist.DelegateName, dist.Total.String())
 		total = new(big.Int).Add(total, dist.Total)
 		delegateNames = append(delegateNames, stringToBytes32(dist.DelegateName))
-		divAddrList, divAmountList, err := splitRecipients(chunkSize, dist.RecipientList, dist.AmountList)
+		tx := dao.Transaction()
+		divAddrList, divAmountList, err := splitRecipients(
+			c,
+			tx,
+			minRewards,
+			chargeFee,
+			dist.DelegateName,
+			endEpoch.Uint64(),
+			chunkSize,
+			dist.RecipientList,
+			dist.AmountList,
+		)
 		if err != nil {
+			tx.Rollback()
 			return err
 		}
+		tx.Commit()
 		for {
 			distrbutedCount, err := getDistributedCount(c, dist.DelegateName)
 			if err != nil {
@@ -264,35 +283,6 @@ func sendRewards(
 	hermesABI, err := abi.JSON(strings.NewReader(HermesABI))
 	if err != nil {
 		return err
-	}
-
-	for i := 0; i < len(voterAddrList); i++ {
-		bucketID, err := GetBucketID(c, voterAddrList[i])
-		if err != nil {
-			fmt.Printf("Query bucketID from contract error: %v\n", err)
-			continue
-		}
-		if bucketID != -1 {
-			addr, err := address.FromBytes(voterAddrList[i][:])
-			if err != nil {
-				fmt.Printf("Convert address error: %v\n", err)
-				continue
-			}
-			drop := dao.DropRecord{
-				EndEpoch:     endEpoch.Uint64(),
-				DelegateName: delegateName,
-				Voter:        addr.String(),
-				Amount:       amountList[i].String(),
-				Index:        uint64(bucketID),
-				Status:       "pending",
-			}
-			err = drop.Save(dao.DB())
-			if err != nil {
-				fmt.Printf("Save drop record error: %v\n", err)
-				continue
-			}
-			amountList[i] = big.NewInt(0)
-		}
 	}
 
 	totalAmount := new(big.Int).Set(minTips)
@@ -603,22 +593,100 @@ func calculateServiceFee(voterCount int64, refund *big.Int) (*big.Int, *big.Int,
 	return serviceFee, refund, nil
 }
 
-func splitRecipients(chunkSize int, recipientAddrList []common.Address, amountList []*big.Int) ([][]common.Address, [][]*big.Int, error) {
+func splitRecipients(
+	c iotex.AuthedClient,
+	tx *gorm.DB,
+	minRewards *big.Int,
+	chargeFee *big.Int,
+	delegateName string,
+	endEpoch uint64,
+	chunkSize int,
+	recipientAddrList []common.Address,
+	amountList []*big.Int,
+) ([][]common.Address, [][]*big.Int, error) {
 	if len(recipientAddrList) != len(amountList) {
 		return nil, nil, errors.New("length does not match")
 	}
+
+	var innerAddrList []common.Address
+	var innerAmountList []*big.Int
+	for i := 0; i < len(recipientAddrList); i++ {
+		smallAmount := big.NewInt(0)
+		smallRecords, err := dao.FindSmallByVoterAndStatus(recipientAddrList[i].String(), delegateName, "new")
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, v := range smallRecords {
+			recordAmount, _ := new(big.Int).SetString(v.Amount, 10)
+			smallAmount = new(big.Int).Add(smallAmount, recordAmount)
+		}
+		mergedAmount := new(big.Int).Add(smallAmount, amountList[i])
+
+		if mergedAmount.Cmp(minRewards) >= 0 {
+			bucketID, err := GetBucketID(c, recipientAddrList[i])
+			if err != nil {
+				fmt.Printf("Query bucketID from contract error: %v\n", err)
+				bucketID = -1
+			}
+			if bucketID != -1 {
+				// compound records
+				addr, _ := address.FromBytes(recipientAddrList[i][:])
+				drop := dao.DropRecord{
+					EndEpoch:     endEpoch,
+					DelegateName: delegateName,
+					Voter:        addr.String(),
+					Amount:       mergedAmount.String(),
+					Index:        uint64(bucketID),
+					Status:       "pending",
+				}
+				err = drop.Save(tx)
+				if err != nil {
+					fmt.Printf("Save drop record error: %v\n", err)
+					return nil, nil, err
+				}
+			} else {
+				innerAddrList = append(innerAddrList, recipientAddrList[i])
+				innerAmountList = append(innerAmountList, new(big.Int).Sub(mergedAmount, chargeFee))
+			}
+			for _, v := range smallRecords {
+				v.Signature = ""
+				v.Status = "completed"
+				err = v.Save(tx)
+				if err != nil {
+					fmt.Printf("Update small record error: %v\n", err)
+					return nil, nil, err
+				}
+			}
+		} else {
+			addr, _ := address.FromBytes(recipientAddrList[i][:])
+			// save small records
+			small := dao.SmallRecord{
+				EndEpoch:     endEpoch,
+				DelegateName: delegateName,
+				Voter:        addr.String(),
+				Amount:       amountList[i].String(),
+				Status:       "pending",
+			}
+			err = small.Save(tx)
+			if err != nil {
+				fmt.Printf("Save small record error: %v\n", err)
+				return nil, nil, err
+			}
+		}
+	}
+
 	var divAddrList [][]common.Address
 	var divAmountList [][]*big.Int
 
-	for i := 0; i < len(recipientAddrList); i += chunkSize {
+	for i := 0; i < len(innerAddrList); i += chunkSize {
 		end := i + chunkSize
 
-		if end > len(recipientAddrList) {
-			end = len(recipientAddrList)
+		if end > len(innerAddrList) {
+			end = len(innerAddrList)
 		}
 
-		divAddrList = append(divAddrList, recipientAddrList[i:end])
-		divAmountList = append(divAmountList, amountList[i:end])
+		divAddrList = append(divAddrList, innerAddrList[i:end])
+		divAmountList = append(divAmountList, innerAmountList[i:end])
 	}
 
 	return divAddrList, divAmountList, nil

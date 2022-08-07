@@ -121,7 +121,6 @@ type SmallRecord struct {
 	EndEpoch     uint64
 	DelegateName string `gorm:"type:varchar(100)"`
 	Voter        string `gorm:"type:varchar(41)"`
-	Index        uint64
 	Amount       string `gorm:"type:varchar(50)"`
 	Status       string `gorm:"type:varchar(15);index:idx_small_records_status"`
 	Hash         string `gorm:"type:varchar(64)"`
