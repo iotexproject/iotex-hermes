@@ -119,6 +119,7 @@ type SmallRecord struct {
 	gorm.Model
 
 	EndEpoch     uint64
+	SentEpoch    uint64
 	DelegateName string `gorm:"type:varchar(100)"`
 	Voter        string `gorm:"type:varchar(41)"`
 	Amount       string `gorm:"type:varchar(50)"`

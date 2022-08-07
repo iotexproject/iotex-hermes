@@ -649,8 +649,9 @@ func splitRecipients(
 				innerAmountList = append(innerAmountList, new(big.Int).Sub(mergedAmount, chargeFee))
 			}
 			for _, v := range smallRecords {
-				v.Signature = ""
+				v.SentEpoch = endEpoch
 				v.Status = "completed"
+				v.Signature = ""
 				err = v.Save(tx)
 				if err != nil {
 					fmt.Printf("Update small record error: %v\n", err)
