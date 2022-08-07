@@ -114,3 +114,56 @@ func SumByEndEpoch(endEpoch uint64) (*big.Int, uint64, error) {
 
 	return sum, maxEndEpoch, err
 }
+
+type SmallRecord struct {
+	gorm.Model
+
+	EndEpoch     uint64
+	DelegateName string `gorm:"type:varchar(100)"`
+	Voter        string `gorm:"type:varchar(41)"`
+	Index        uint64
+	Amount       string `gorm:"type:varchar(50)"`
+	Status       string `gorm:"type:varchar(15);index:idx_small_records_status"`
+	Hash         string `gorm:"type:varchar(64)"`
+	Signature    string `gorm:"type:text"`
+	ErrorMessage string `gorm:"type:text"`
+}
+
+func FindSmallByVoterAndStatus(voter, delegate, status string) (result []SmallRecord, err error) {
+	err = db.Where("voter = ? and delegate_name = ? and status = ?", voter, delegate, status).Find(&result).Error
+	return
+}
+
+// Save insert or update small record
+func (t SmallRecord) Save(tx *gorm.DB) error {
+	if tx == nil {
+		tx = db
+	}
+
+	if t.Signature == "" {
+		signature, err := key.Sign(fmt.Sprintf("%s,%s,%s", t.DelegateName, t.Amount, t.Status), privateKey)
+		if err != nil {
+			return err
+		}
+		t.Signature = signature
+	}
+
+	if t.ID == 0 {
+		var count uint64
+		err := tx.Model(&SmallRecord{}).Where("`end_epoch` = ? and `delegate_name` = ? and `voter` = ?", t.EndEpoch, t.DelegateName, t.Voter).Count(&count).Error
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil
+		}
+
+		return tx.Create(&t).Error
+	}
+	return tx.Save(&t).Error
+}
+
+// Verify verify signature
+func (t *SmallRecord) Verify() error {
+	return key.Verify(fmt.Sprintf("%s,%s,%s", t.DelegateName, t.Amount, t.Status), t.Signature, publicKey)
+}
