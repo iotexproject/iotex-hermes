@@ -184,7 +184,7 @@ type SmallRecordBak struct {
 
 func BakCompletedRecord() error {
 	tx := DB()
-	err := tx.Exec("INSERT INTO small_records_bak SELECT * FROM small_records WHERE status =?", "completed").Error
+	err := tx.Exec("INSERT INTO small_record_baks SELECT * FROM small_records WHERE status =?", "completed").Error
 	if err != nil {
 		tx.Rollback()
 		return err
