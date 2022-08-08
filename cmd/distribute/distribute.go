@@ -703,7 +703,7 @@ func splitRecipients(
 		divAmountList = append(divAmountList, innerAmountList[i:end])
 	}
 
-	return divAddrList, divAmountList, len(divAddrList), nil
+	return divAddrList, divAmountList, len(innerAddrList), nil
 }
 
 // ioAddrToEvmAddr converts IoTeX address into evm address
