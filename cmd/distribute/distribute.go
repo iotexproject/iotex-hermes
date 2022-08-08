@@ -98,7 +98,7 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 		total = new(big.Int).Add(total, dist.Total)
 		delegateNames = append(delegateNames, stringToBytes32(dist.DelegateName))
 		tx := dao.Transaction()
-		divAddrList, divAmountList, err := splitRecipients(
+		divAddrList, divAmountList, totalRecipients, err := splitRecipients(
 			c,
 			tx,
 			minRewards,
@@ -120,12 +120,12 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 				return err
 			}
 			// distribution is done for the delegate
-			if int(distrbutedCount) == len(dist.RecipientList) {
+			if int(distrbutedCount) == totalRecipients {
 				break
 			}
 			if int(distrbutedCount)%chunkSize != 0 {
 				return fmt.Errorf("invalid distributed count, Delegate Name: %s, Distributed Count: %d, Number of Recipients: %d",
-					dist.DelegateName, distrbutedCount, len(dist.RecipientList))
+					dist.DelegateName, distrbutedCount, totalRecipients)
 			}
 			nextGroup := int(distrbutedCount) / chunkSize
 			if err := sendRewards(c, dist.DelegateName, endEpoch, tip, divAddrList[nextGroup], divAmountList[nextGroup]); err != nil {
@@ -168,6 +168,13 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 	if err != nil {
 		if notifier != nil {
 			notifier.SendMessage(fmt.Sprintf("send transfer sender action %s error: %v", hex.EncodeToString(hash[:]), err))
+		}
+	}
+
+	err = dao.BakCompletedRecord()
+	if err != nil {
+		if notifier != nil {
+			notifier.SendMessage(fmt.Sprintf("Bak completed records error: %v", err))
 		}
 	}
 
@@ -603,20 +610,26 @@ func splitRecipients(
 	chunkSize int,
 	recipientAddrList []common.Address,
 	amountList []*big.Int,
-) ([][]common.Address, [][]*big.Int, error) {
+) ([][]common.Address, [][]*big.Int, int, error) {
 	if len(recipientAddrList) != len(amountList) {
-		return nil, nil, errors.New("length does not match")
+		return nil, nil, 0, errors.New("length does not match")
 	}
 
 	var innerAddrList []common.Address
 	var innerAmountList []*big.Int
 	for i := 0; i < len(recipientAddrList); i++ {
 		smallAmount := big.NewInt(0)
-		smallRecords, err := dao.FindSmallByVoterAndStatus(recipientAddrList[i].String(), delegateName, "new")
+		smallRecords, err := dao.FindSmallByVoterAndStatus(recipientAddrList[i].String(), delegateName, "new", endEpoch)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, 0, err
 		}
 		for _, v := range smallRecords {
+			if v.Verify() != nil {
+				v.Status = "invalid"
+				v.Save(tx)
+				fmt.Printf("Invalid verify: %v\n", err)
+				continue
+			}
 			recordAmount, _ := new(big.Int).SetString(v.Amount, 10)
 			smallAmount = new(big.Int).Add(smallAmount, recordAmount)
 		}
@@ -642,7 +655,7 @@ func splitRecipients(
 				err = drop.Save(tx)
 				if err != nil {
 					fmt.Printf("Save drop record error: %v\n", err)
-					return nil, nil, err
+					return nil, nil, 0, err
 				}
 			} else {
 				innerAddrList = append(innerAddrList, recipientAddrList[i])
@@ -655,7 +668,7 @@ func splitRecipients(
 				err = v.Save(tx)
 				if err != nil {
 					fmt.Printf("Update small record error: %v\n", err)
-					return nil, nil, err
+					return nil, nil, 0, err
 				}
 			}
 		} else {
@@ -666,12 +679,12 @@ func splitRecipients(
 				DelegateName: delegateName,
 				Voter:        addr.String(),
 				Amount:       amountList[i].String(),
-				Status:       "pending",
+				Status:       "new",
 			}
 			err = small.Save(tx)
 			if err != nil {
 				fmt.Printf("Save small record error: %v\n", err)
-				return nil, nil, err
+				return nil, nil, 0, err
 			}
 		}
 	}
@@ -690,7 +703,7 @@ func splitRecipients(
 		divAmountList = append(divAmountList, innerAmountList[i:end])
 	}
 
-	return divAddrList, divAmountList, nil
+	return divAddrList, divAmountList, len(divAddrList), nil
 }
 
 // ioAddrToEvmAddr converts IoTeX address into evm address

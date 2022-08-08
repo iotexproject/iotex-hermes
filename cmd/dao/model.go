@@ -120,8 +120,8 @@ type SmallRecord struct {
 
 	EndEpoch     uint64
 	SentEpoch    uint64
-	DelegateName string `gorm:"type:varchar(100)"`
-	Voter        string `gorm:"type:varchar(41)"`
+	DelegateName string `gorm:"type:varchar(100);index:idx_small_records_delegate_name"`
+	Voter        string `gorm:"type:varchar(41);index:idx_small_records_voter"`
 	Amount       string `gorm:"type:varchar(50)"`
 	Status       string `gorm:"type:varchar(15);index:idx_small_records_status"`
 	Hash         string `gorm:"type:varchar(64)"`
@@ -129,8 +129,8 @@ type SmallRecord struct {
 	ErrorMessage string `gorm:"type:text"`
 }
 
-func FindSmallByVoterAndStatus(voter, delegate, status string) (result []SmallRecord, err error) {
-	err = db.Where("voter = ? and delegate_name = ? and status = ?", voter, delegate, status).Find(&result).Error
+func FindSmallByVoterAndStatus(voter, delegate, status string, endEpoch uint64) (result []SmallRecord, err error) {
+	err = db.Where("voter = ? and delegate_name = ? and status = ? and end_epoch <> ?", voter, delegate, status, endEpoch).Find(&result).Error
 	return
 }
 
@@ -166,4 +166,33 @@ func (t SmallRecord) Save(tx *gorm.DB) error {
 // Verify verify signature
 func (t *SmallRecord) Verify() error {
 	return key.Verify(fmt.Sprintf("%s,%s,%s", t.DelegateName, t.Amount, t.Status), t.Signature, publicKey)
+}
+
+type SmallRecordBak struct {
+	gorm.Model
+
+	EndEpoch     uint64
+	SentEpoch    uint64
+	DelegateName string `gorm:"type:varchar(100);index:idx_small_records_delegate_name"`
+	Voter        string `gorm:"type:varchar(41);index:idx_small_records_voter"`
+	Amount       string `gorm:"type:varchar(50)"`
+	Status       string `gorm:"type:varchar(15);index:idx_small_records_status"`
+	Hash         string `gorm:"type:varchar(64)"`
+	Signature    string `gorm:"type:text"`
+	ErrorMessage string `gorm:"type:text"`
+}
+
+func BakCompletedRecord() error {
+	tx := DB()
+	err := tx.Exec("INSERT INTO small_records_bak SELECT * FROM small_records WHERE status =?", "completed").Error
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	err = tx.Exec("delete small_records WHERE status =?", "completed").Error
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	return nil
 }
