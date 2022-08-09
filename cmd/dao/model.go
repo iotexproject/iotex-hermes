@@ -189,7 +189,7 @@ func BakCompletedRecord() error {
 		tx.Rollback()
 		return err
 	}
-	err = tx.Exec("delete small_records WHERE status =?", "completed").Error
+	err = tx.Exec("DELETE FROM small_records WHERE status =?", "completed").Error
 	if err != nil {
 		tx.Rollback()
 		return err
