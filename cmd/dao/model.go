@@ -194,5 +194,5 @@ func BakCompletedRecord() error {
 		tx.Rollback()
 		return err
 	}
-	return nil
+	return tx.Commit().Error
 }
