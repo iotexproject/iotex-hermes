@@ -619,7 +619,8 @@ func splitRecipients(
 	var innerAmountList []*big.Int
 	for i := 0; i < len(recipientAddrList); i++ {
 		smallAmount := big.NewInt(0)
-		smallRecords, err := dao.FindSmallByVoterAndStatus(recipientAddrList[i].String(), delegateName, "new", endEpoch)
+		recipient, _ := address.FromBytes(recipientAddrList[i][:])
+		smallRecords, err := dao.FindSmallByVoterAndStatus(recipient.String(), delegateName, "new", endEpoch)
 		if err != nil {
 			return nil, nil, 0, err
 		}
@@ -643,11 +644,10 @@ func splitRecipients(
 			}
 			if bucketID != -1 {
 				// compound records
-				addr, _ := address.FromBytes(recipientAddrList[i][:])
 				drop := dao.DropRecord{
 					EndEpoch:     endEpoch,
 					DelegateName: delegateName,
-					Voter:        addr.String(),
+					Voter:        recipient.String(),
 					Amount:       mergedAmount.String(),
 					Index:        uint64(bucketID),
 					Status:       "pending",
@@ -672,12 +672,11 @@ func splitRecipients(
 				}
 			}
 		} else {
-			addr, _ := address.FromBytes(recipientAddrList[i][:])
 			// save small records
 			small := dao.SmallRecord{
 				EndEpoch:     endEpoch,
 				DelegateName: delegateName,
-				Voter:        addr.String(),
+				Voter:        recipient.String(),
 				Amount:       amountList[i].String(),
 				Status:       "new",
 			}
