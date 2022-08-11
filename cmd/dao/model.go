@@ -134,6 +134,11 @@ func FindSmallByVoterAndStatus(voter, delegate, status string, endEpoch uint64) 
 	return
 }
 
+func FindPendingSmalls(voter, delegate string, endEpoch uint64) (result []SmallRecord, err error) {
+	err = db.Where("voter = ? and delegate_name = ? and end_epoch <> ?", voter, delegate, endEpoch).Find(&result).Error
+	return
+}
+
 // Save insert or update small record
 func (t SmallRecord) Save(tx *gorm.DB) error {
 	if tx == nil {

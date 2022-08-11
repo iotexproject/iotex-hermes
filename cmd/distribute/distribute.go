@@ -136,6 +136,12 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 	if notifier != nil {
 		notifier.SendMessage(fmt.Sprintf("epoch %d total rewards: %s", endEpoch, total.String()))
 	}
+	err = dao.BakCompletedRecord()
+	if err != nil {
+		if notifier != nil {
+			notifier.SendMessage(fmt.Sprintf("Bak completed records error: %v", err))
+		}
+	}
 	err = commitDistributions(c, endEpoch, delegateNames)
 	if err != nil {
 		return err
@@ -168,13 +174,6 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 	if err != nil {
 		if notifier != nil {
 			notifier.SendMessage(fmt.Sprintf("send transfer sender action %s error: %v", hex.EncodeToString(hash[:]), err))
-		}
-	}
-
-	err = dao.BakCompletedRecord()
-	if err != nil {
-		if notifier != nil {
-			notifier.SendMessage(fmt.Sprintf("Bak completed records error: %v", err))
 		}
 	}
 
@@ -620,7 +619,7 @@ func splitRecipients(
 	for i := 0; i < len(recipientAddrList); i++ {
 		smallAmount := big.NewInt(0)
 		recipient, _ := address.FromBytes(recipientAddrList[i][:])
-		smallRecords, err := dao.FindSmallByVoterAndStatus(recipient.String(), delegateName, "new", endEpoch)
+		smallRecords, err := dao.FindPendingSmalls(recipient.String(), delegateName, endEpoch)
 		if err != nil {
 			return nil, nil, 0, err
 		}
@@ -662,13 +661,15 @@ func splitRecipients(
 				innerAmountList = append(innerAmountList, new(big.Int).Sub(mergedAmount, chargeFee))
 			}
 			for _, v := range smallRecords {
-				v.SentEpoch = endEpoch
-				v.Status = "completed"
-				v.Signature = ""
-				err = v.Save(tx)
-				if err != nil {
-					fmt.Printf("Update small record error: %v\n", err)
-					return nil, nil, 0, err
+				if v.Status == "new" {
+					v.SentEpoch = endEpoch
+					v.Status = "completed"
+					v.Signature = ""
+					err = v.Save(tx)
+					if err != nil {
+						fmt.Printf("Update small record error: %v\n", err)
+						return nil, nil, 0, err
+					}
 				}
 			}
 		} else {
