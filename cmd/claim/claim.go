@@ -49,7 +49,7 @@ func Reward() (*big.Int, error) {
 		return nil, err
 	}
 	defer conn.Close()
-	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), account)
+	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, account)
 
 	// get current epoch and block height
 	resp, err := c.API().GetChainMeta(context.Background(), &iotexapi.GetChainMetaRequest{})

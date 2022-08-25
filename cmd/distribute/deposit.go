@@ -41,11 +41,12 @@ func GetBucketID(c iotex.AuthedClient, voter common.Address) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	var bucketID *big.Int
-	if err := data.Unmarshal(&bucketID); err != nil {
+
+	bucketID, err := data.Unmarshal()
+	if err != nil {
 		return 0, err
 	}
-	return bucketID.Int64(), nil
+	return bucketID[0].(*big.Int).Int64(), nil
 }
 
 // Sender send drop record
@@ -70,7 +71,7 @@ func (s *accountSender) send() {
 		log.Fatalf("create grpc error: %v", err)
 	}
 	defer conn.Close()
-	client := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), s.account)
+	client := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, s.account)
 
 	for _, record := range s.records {
 		if record.Verify() != nil {

@@ -33,7 +33,7 @@ func TestGetMinTips(t *testing.T) {
 	require.NoError(err)
 	defer conn.Close()
 
-	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), account)
+	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, account)
 
 	os.Setenv("MULTISEND_CONTRACT_ADDRESS", multiSendAddress)
 

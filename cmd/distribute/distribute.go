@@ -68,7 +68,7 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 		return err
 	}
 	defer conn.Close()
-	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), account)
+	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, account)
 
 	// query GraphQL to get the distribution list
 	endEpoch, tip, distributions, err := getDistribution(c)
@@ -371,10 +371,11 @@ func getMinTips(c iotex.AuthedClient) (*big.Int, error) {
 	if err != nil {
 		return nil, err
 	}
-	var minTips *big.Int
-	if err := data.Unmarshal(&minTips); err != nil {
+	decoded, err := data.Unmarshal()
+	if err != nil {
 		return nil, err
 	}
+	minTips := decoded[0].(*big.Int)
 
 	fmt.Printf("MultiSend Contract: %s, min tip: %s\n", cstring, minTips.String())
 	return minTips, nil
@@ -394,11 +395,12 @@ func getContractStartEpoch(c iotex.AuthedClient) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	var contractStartEpoch *big.Int
-	if err := data.Unmarshal(&contractStartEpoch); err != nil {
+	decoded, err := data.Unmarshal()
+	if err != nil {
 		return 0, err
 	}
-	return contractStartEpoch.Uint64(), nil
+
+	return decoded[0].(*big.Int).Uint64(), nil
 }
 
 // GetLastEndEpoch get last end epoch from hermes contract
@@ -416,10 +418,11 @@ func GetLastEndEpoch(c iotex.AuthedClient) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	var endEpochCount *big.Int
-	if err := data.Unmarshal(&endEpochCount); err != nil {
+	decoded, err := data.Unmarshal()
+	if err != nil {
 		return 0, err
 	}
+	endEpochCount := decoded[0].(*big.Int)
 
 	if endEpochCount.String() == "0" {
 		return 0, nil
@@ -428,11 +431,11 @@ func GetLastEndEpoch(c iotex.AuthedClient) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	var lastEndEpoch *big.Int
-	if err := data.Unmarshal(&lastEndEpoch); err != nil {
+	decoded, err = data.Unmarshal()
+	if err != nil {
 		return 0, err
 	}
-	return lastEndEpoch.Uint64(), nil
+	return decoded[0].(*big.Int).Uint64(), nil
 }
 
 func getDistributedCount(c iotex.AuthedClient, delegateName string) (uint64, error) {
@@ -451,11 +454,11 @@ func getDistributedCount(c iotex.AuthedClient, delegateName string) (uint64, err
 	if err != nil {
 		return 0, err
 	}
-	var distributedCount *big.Int
-	if err := data.Unmarshal(&distributedCount); err != nil {
+	decoded, err := data.Unmarshal()
+	if err != nil {
 		return 0, err
 	}
-	return distributedCount.Uint64(), nil
+	return decoded[0].(*big.Int).Uint64(), nil
 }
 
 func getBookkeeping(startEpoch uint64, epochCount uint64, rewardAddress string) ([]*DistributionInfo, error) {

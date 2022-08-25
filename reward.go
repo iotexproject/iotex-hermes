@@ -35,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("new empty account error: %v\n", err)
 	}
-	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), emptyAccount)
+	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, emptyAccount)
 
 	err = dao.ConnectDatabase()
 	if err != nil {

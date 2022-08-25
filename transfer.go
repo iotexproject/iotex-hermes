@@ -22,7 +22,7 @@ func main() {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 
 	sender, _ := util.GetVaultAccount(pwd)
-	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), sender)
+	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, sender)
 
 	amount, _ := new(big.Int).SetString("78677000000000000000000", 10)
 
