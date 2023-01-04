@@ -1,11 +1,14 @@
 package distribute
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -62,6 +65,15 @@ type accountSender struct {
 	notifier  *Notifier
 }
 
+type analyserData struct {
+	EpochNumber  uint64 `json:"epochNumber"`
+	DelegateName string `json:"delegateName"`
+	VoterAddress string `json:"voterAddress"`
+	ActHash      string `json:"actHash"`
+	BucketID     uint64 `json:"bucketID"`
+	Amount       string `json:"amount"`
+}
+
 var bucketStateMap = make(map[uint64]bool)
 
 func (s *accountSender) send() {
@@ -86,7 +98,7 @@ func (s *accountSender) send() {
 		if !ok {
 			log.Printf("can't convert staking amount: %v\n", record.Amount)
 		}
-		h, err := addDepositOrTransfer(client, record.ID, record.Index, record.Voter, record.DelegateName, amount)
+		h, ra, err := addDepositOrTransfer(client, record.ID, record.Index, record.Voter, record.DelegateName, amount)
 		if err != nil {
 			if !strings.HasSuffix(err.Error(), "insufficient funds for gas * price + value") {
 				log.Printf("add deposit %d error: %v\n", record.ID, err)
@@ -109,6 +121,19 @@ func (s *accountSender) send() {
 		if err != nil {
 			log.Fatalf("save success drop records %d:%s error: %v", record.ID, record.Voter, err)
 		}
+
+		ad := analyserData{
+			EpochNumber:  record.EndEpoch,
+			DelegateName: record.DelegateName,
+			VoterAddress: record.Voter,
+			BucketID:     record.Index,
+			ActHash:      record.Hash,
+			Amount:       ra.String(),
+		}
+		err = postAnalyserData(&ad)
+		if err != nil {
+			log.Fatalf("post analyser data error: %v", err)
+		}
 	}
 
 	s.records = nil
@@ -116,6 +141,31 @@ func (s *accountSender) send() {
 		s.waitGroup.Done()
 		s.waitGroup = nil
 	}
+}
+
+func postAnalyserData(ad *analyserData) error {
+	data, err := json.Marshal(ad)
+	if err != nil {
+		return err
+	}
+
+	request, err := http.NewRequest(
+		"POST",
+		"https://analyser-api.iotex.io/api.HermesService.HermesDropRecords",
+		bytes.NewBuffer(data),
+	)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json; charset=UTF-8")
+
+	client := &http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	return nil
 }
 
 func checkAutoStake(c iotex.AuthedClient, bucketID uint64) (bool, error) {
@@ -171,13 +221,13 @@ func addDepositOrTransfer(
 	voter string,
 	delegateName string,
 	amount *big.Int,
-) (hash.Hash256, error) {
+) (hash.Hash256, *big.Int, error) {
 	ctx := context.Background()
 
 	gasPriceStr := util.MustFetchNonEmptyParam("GAS_PRICE")
 	gasPrice, ok := big.NewInt(0).SetString(gasPriceStr, 10)
 	if !ok {
-		return hash.ZeroHash256, errors.New("failed to convert string to big int")
+		return hash.ZeroHash256, nil, errors.New("failed to convert string to big int")
 	}
 	// TODO change to 10000?
 	gasLimit := 13000
@@ -185,7 +235,7 @@ func addDepositOrTransfer(
 	gas := big.NewInt(0).Mul(gasPrice, big.NewInt(int64(gasLimit)))
 	if amount.Cmp(gas) <= 0 {
 		log.Printf("amount %s less than gas for %d\n", amount.String(), recordID)
-		return hash.ZeroHash256, nil
+		return hash.ZeroHash256, nil, nil
 	}
 
 	autoStake, err := checkAutoStake(c, bucketID)
@@ -194,15 +244,16 @@ func addDepositOrTransfer(
 	}
 
 	var h hash.Hash256
+	ra := big.NewInt(0).Sub(amount, gas)
 	if !autoStake {
 		to, _ := address.FromString(voter)
-		h, err = c.Transfer(to, big.NewInt(0).Sub(amount, gas)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
+		h, err = c.Transfer(to, ra).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
 	} else {
-		h, err = c.Staking().AddDeposit(bucketID, big.NewInt(0).Sub(amount, gas)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
+		h, err = c.Staking().AddDeposit(bucketID, ra).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
 	}
 
 	if err != nil {
-		return hash.ZeroHash256, err
+		return hash.ZeroHash256, nil, err
 	}
 	time.Sleep(5 * time.Second)
 
@@ -215,18 +266,18 @@ func addDepositOrTransfer(
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			return hash.ZeroHash256, err
+			return hash.ZeroHash256, nil, err
 		}
 		if resp.ReceiptInfo.Receipt.Status == 204 {
 			delete(bucketStateMap, bucketID)
 			return addDepositOrTransfer(c, recordID, bucketID, voter, delegateName, amount)
 		}
 		if resp.ReceiptInfo.Receipt.Status != 1 {
-			return hash.ZeroHash256, errors.Errorf("add deposit staking failed: %x", h)
+			return hash.ZeroHash256, nil, errors.Errorf("add deposit staking failed: %x", h)
 		}
-		return h, nil
+		return h, ra, nil
 	}
-	return hash.ZeroHash256, errors.Errorf("add deposit error by exhausted retry, index=%d, hash: %x", bucketID, h)
+	return hash.ZeroHash256, nil, errors.Errorf("add deposit error by exhausted retry, index=%d, hash: %x", bucketID, h)
 }
 
 // Send send records
