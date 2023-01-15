@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
 	"math/big"
 	"net/http"
@@ -130,10 +132,7 @@ func (s *accountSender) send() {
 			ActHash:      record.Hash,
 			Amount:       ra.String(),
 		}
-		err = postAnalyserData(&ad)
-		if err != nil {
-			log.Fatalf("post analyser data error: %v", err)
-		}
+		postAnalyserData(&ad)
 	}
 
 	s.records = nil
@@ -143,29 +142,42 @@ func (s *accountSender) send() {
 	}
 }
 
-func postAnalyserData(ad *analyserData) error {
+func postAnalyserData(ad *analyserData) {
 	data, err := json.Marshal(ad)
 	if err != nil {
-		return err
+		log.Printf("marshal data error: %v\n", err)
 	}
 
-	request, err := http.NewRequest(
-		"POST",
-		"https://analyser-api.iotex.io/api.HermesService.HermesDropRecords",
-		bytes.NewBuffer(data),
-	)
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Content-Type", "application/json; charset=UTF-8")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func(ctx context.Context) {
+		request, err := http.NewRequestWithContext(
+			ctx,
+			"POST",
+			"https://analyser-api.iotex.io/api.HermesService.HermesDropRecords",
+			bytes.NewBuffer(data),
+		)
+		if err != nil {
+			log.Printf("new request error: %v\n", err)
+		}
+		request.Header.Set("Content-Type", "application/json; charset=UTF-8")
 
-	client := &http.Client{}
-	response, err := client.Do(request)
-	if err != nil {
-		return err
+		client := &http.Client{}
+		response, err := client.Do(request)
+		if err != nil {
+			log.Printf("post data error: %v\n", err)
+		}
+		defer response.Body.Close()
+		io.Copy(ioutil.Discard, request.Body)
+	}(ctx)
+
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(time.Duration(11 * time.Second)):
+		fmt.Println("post data timeout")
+		return
 	}
-	defer response.Body.Close()
-	return nil
 }
 
 func checkAutoStake(c iotex.AuthedClient, bucketID uint64) (bool, error) {
