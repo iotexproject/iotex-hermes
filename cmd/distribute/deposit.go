@@ -166,6 +166,7 @@ func postAnalyserData(ad *analyserData) {
 		response, err := client.Do(request)
 		if err != nil {
 			log.Printf("post data error: %v\n", err)
+			return
 		}
 		defer response.Body.Close()
 		io.Copy(ioutil.Discard, request.Body)
