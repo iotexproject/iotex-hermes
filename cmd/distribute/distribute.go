@@ -97,23 +97,46 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 		fmt.Printf("%s total rewards: %s\n", dist.DelegateName, dist.Total.String())
 		total = new(big.Int).Add(total, dist.Total)
 		delegateNames = append(delegateNames, stringToBytes32(dist.DelegateName))
-		tx := dao.Transaction()
-		divAddrList, divAmountList, totalRecipients, err := splitRecipients(
-			c,
-			tx,
-			minRewards,
-			chargeFee,
-			dist.DelegateName,
-			endEpoch.Uint64(),
-			chunkSize,
-			dist.RecipientList,
-			dist.AmountList,
-		)
+
+		snapshot, err := LoadSnapshot(dist.DelegateName, endEpoch.Uint64())
 		if err != nil {
-			tx.Rollback()
 			return err
 		}
-		tx.Commit()
+		var divAddrList [][]common.Address
+		var divAmountList [][]*big.Int
+		var totalRecipients int
+		if snapshot == nil {
+			tx := dao.Transaction()
+			divAddrList, divAmountList, totalRecipients, err = splitRecipients(
+				c,
+				tx,
+				minRewards,
+				chargeFee,
+				dist.DelegateName,
+				endEpoch.Uint64(),
+				chunkSize,
+				dist.RecipientList,
+				dist.AmountList,
+			)
+			if err != nil {
+				tx.Rollback()
+				return err
+			}
+			tx.Commit()
+			snapshot = &Snapshot{
+				DivAddrList:     divAddrList,
+				DivAmountList:   divAmountList,
+				TotalRecipients: totalRecipients,
+			}
+			err = snapshot.Save(dist.DelegateName, endEpoch.Uint64())
+			if err != nil {
+				return err
+			}
+		} else {
+			divAddrList = snapshot.DivAddrList
+			divAmountList = snapshot.DivAmountList
+			totalRecipients = snapshot.TotalRecipients
+		}
 		for {
 			distrbutedCount, err := getDistributedCount(c, dist.DelegateName)
 			if err != nil {
