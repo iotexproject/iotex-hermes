@@ -201,3 +201,37 @@ func BakCompletedRecord() error {
 	}
 	return tx.Commit().Error
 }
+
+type Account struct {
+	gorm.Model
+
+	Address  string `gorm:"type:varchar(41);index:idx_all_addresses_address"`
+	Transfer uint8
+	Contract uint8
+}
+
+// Save insert or update small record
+func (t Account) Save(tx *gorm.DB) error {
+	if tx == nil {
+		tx = db
+	}
+
+	var count uint64
+	err := tx.Model(&Account{}).Where("`address` = ?", t.Address).Count(&count).Error
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	return tx.Create(&t).Error
+}
+
+func FindAccount(address string) (*Account, error) {
+	var account Account
+	err := db.Model(&Account{}).Where("`address` = ?", address).First(&account).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	return &account, err
+}

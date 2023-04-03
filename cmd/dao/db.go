@@ -23,7 +23,7 @@ func ConnectDatabase() error {
 	if err != nil {
 		return fmt.Errorf("open database error: %v", err)
 	}
-	db.AutoMigrate(&DropRecord{}, &SmallRecord{}, &SmallRecordBak{})
+	db.AutoMigrate(&DropRecord{}, &SmallRecord{}, &SmallRecordBak{}, &Account{})
 
 	privateKey, err = key.LoadPrivateKey(util.MustFetchNonEmptyParam("RSA_PRIVATE"))
 	if err != nil {

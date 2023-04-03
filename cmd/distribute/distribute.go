@@ -263,7 +263,7 @@ func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionI
 
 	rewardAddress := c.Account().Address().String()
 	epochCount := endEpoch - startEpoch + 1
-	distributions, err := getBookkeeping(startEpoch, epochCount, rewardAddress)
+	distributions, err := GetBookkeeping(c, startEpoch, epochCount, rewardAddress)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -461,7 +461,7 @@ func getDistributedCount(c iotex.AuthedClient, delegateName string) (uint64, err
 	return decoded[0].(*big.Int).Uint64(), nil
 }
 
-func getBookkeeping(startEpoch uint64, epochCount uint64, rewardAddress string) ([]*DistributionInfo, error) {
+func GetBookkeeping(c iotex.AuthedClient, startEpoch uint64, epochCount uint64, rewardAddress string) ([]*DistributionInfo, error) {
 	type query struct {
 		Hermes struct {
 			HermesDistribution []struct {
@@ -556,7 +556,7 @@ func getBookkeeping(startEpoch uint64, epochCount uint64, rewardAddress string) 
 		amountList := make([]*big.Int, 0, len(distributionMap))
 		total := big.NewInt(0)
 		for _, k := range keys {
-			caddr, err := ioAddrToEvmAddr(k)
+			caddr, err := ioAddrToEvmAddr(c, k)
 			if err != nil {
 				return nil, err
 			}
@@ -710,11 +710,38 @@ func splitRecipients(
 }
 
 // ioAddrToEvmAddr converts IoTeX address into evm address
-func ioAddrToEvmAddr(ioAddr string) (common.Address, error) {
-	// temporary fix
-	if ioAddr == "io16y9wk2xnwurvtgmd2mds2gcdfe2lmzad6dcw29" ||
-		ioAddr == "io15qr5fzpxsnp7garl4m7k355rafzqn8grrm0grz" ||
-		ioAddr == "io108ckwzlzpkhva7cnfceajlu7wu6ql5kq95uat9" {
+func ioAddrToEvmAddr(c iotex.AuthedClient, ioAddr string) (common.Address, error) {
+	// // temporary fix
+	// if ioAddr == "io16y9wk2xnwurvtgmd2mds2gcdfe2lmzad6dcw29" ||
+	// 	ioAddr == "io15qr5fzpxsnp7garl4m7k355rafzqn8grrm0grz" ||
+	// 	ioAddr == "io108ckwzlzpkhva7cnfceajlu7wu6ql5kq95uat9" {
+	// 	ioAddr = "io12mgttmfa2ffn9uqvn0yn37f4nz43d248l2ga85"
+	// }
+	account, err := dao.FindAccount(ioAddr)
+	if err != nil {
+		return common.Address{}, err
+	}
+	if account == nil {
+		resp, err := c.API().GetAccount(context.Background(), &iotexapi.GetAccountRequest{
+			Address: ioAddr,
+		})
+		if err != nil {
+			return common.Address{}, err
+		}
+		account = &dao.Account{
+			Address:  ioAddr,
+			Contract: 0,
+			Transfer: 0,
+		}
+		if resp.AccountMeta.IsContract {
+			account.Contract = 1
+		}
+		err = account.Save(dao.DB())
+		if err != nil {
+			return common.Address{}, err
+		}
+	}
+	if account.Contract == 1 && account.Transfer == 0 {
 		ioAddr = "io12mgttmfa2ffn9uqvn0yn37f4nz43d248l2ga85"
 	}
 	address, err := address.FromString(ioAddr)
