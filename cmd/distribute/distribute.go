@@ -505,7 +505,7 @@ func GetBookkeeping(c iotex.AuthedClient, startEpoch uint64, epochCount uint64, 
 	analyticsEndpoint := util.MustFetchNonEmptyParam("ANALYTICS_ENDPOINT")
 
 	src := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NjcwMjQwMDAsImlhdCI6MTY4ODExMjcxMywiaXNzIjoiMHgwNDU5MTk2OGM0Nzg1OWFhYTdjYmVmNzI5ZTAzNzkzNzQzODAxM2YxNmNlMTMyYWRkYzI1YTY4YjM3ODk2MWJlZjNjZWY5ODAzOTAwNDE1YjZlNjBmN2YzMDRlNmY0MmNiYWI3ZWFhOWFkNDZkN2Q5ZGIzODNiMjE1ZWE2NjM3MmI0Iiwic3ViIjoiQW5hbHlzZXJBUEkiLCJzY29wZSI6IlJlYWQifQ.5ozXxgcd9WNR_l4aLKFywHKdi13Q5bKPi1Ar3mpHkJ84TO3IK_HKGqIRBjIzvor4gA3VkfOnF3EphotKU4XYBA"},
+		&oauth2.Token{AccessToken: util.MustFetchNonEmptyParam("ANALYTICS_TOKEN")},
 	)
 	httpClient := oauth2.NewClient(context.Background(), src)
 	gqlClient := graphql.NewClient(analyticsEndpoint, httpClient)
