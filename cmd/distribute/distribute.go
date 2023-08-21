@@ -739,39 +739,6 @@ func splitRecipients(
 
 // ioAddrToEvmAddr converts IoTeX address into evm address
 func ioAddrToEvmAddr(c iotex.AuthedClient, ioAddr string) (common.Address, error) {
-	// // temporary fix
-	// if ioAddr == "io16y9wk2xnwurvtgmd2mds2gcdfe2lmzad6dcw29" ||
-	// 	ioAddr == "io15qr5fzpxsnp7garl4m7k355rafzqn8grrm0grz" ||
-	// 	ioAddr == "io108ckwzlzpkhva7cnfceajlu7wu6ql5kq95uat9" {
-	// 	ioAddr = "io12mgttmfa2ffn9uqvn0yn37f4nz43d248l2ga85"
-	// }
-	account, err := dao.FindAccount(ioAddr)
-	if err != nil {
-		return common.Address{}, err
-	}
-	if account == nil {
-		resp, err := c.API().GetAccount(context.Background(), &iotexapi.GetAccountRequest{
-			Address: ioAddr,
-		})
-		if err != nil {
-			return common.Address{}, err
-		}
-		account = &dao.Account{
-			Address:  ioAddr,
-			Contract: 0,
-			Transfer: 0,
-		}
-		if resp.AccountMeta.IsContract {
-			account.Contract = 1
-		}
-		err = account.Save(dao.DB())
-		if err != nil {
-			return common.Address{}, err
-		}
-	}
-	if account.Contract == 1 && account.Transfer == 0 {
-		ioAddr = "io12mgttmfa2ffn9uqvn0yn37f4nz43d248l2ga85"
-	}
 	address, err := address.FromString(ioAddr)
 	if err != nil {
 		return common.Address{}, err

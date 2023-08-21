@@ -1,29 +1,87 @@
 package distribute
 
 import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
-	"strconv"
-
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
-	"github.com/iotexproject/iotex-hermes/util"
+	"log"
+	"net/http"
+	"time"
 )
 
-type Notifier struct {
-	bot *tgbotapi.BotAPI
+type TextContext struct {
+	Text string `json:"text"`
 }
 
-func NewNotifier() (*Notifier, error) {
-	bot, err := tgbotapi.NewBotAPI(util.MustFetchNonEmptyParam("TG_TOKEN"))
+type Message struct {
+	Timestamp string      `json:"timestamp"`
+	Sign      string      `json:"sign"`
+	MsgType   string      `json:"msg_type"`
+	Content   TextContext `json:"content"`
+}
+
+type Notifier struct {
+	Endpoint string
+	Key      string
+}
+
+func GenSign(secret string, timestamp int64) (string, error) {
+	stringToSign := fmt.Sprintf("%v", timestamp) + "\n" + secret
+	var data []byte
+	h := hmac.New(sha256.New, []byte(stringToSign))
+	_, err := h.Write(data)
 	if err != nil {
-		return nil, fmt.Errorf("create telegram bot error: %v", err)
+		return "", err
 	}
-	return &Notifier{bot}, nil
+	signature := base64.StdEncoding.EncodeToString(h.Sum(nil))
+	return signature, nil
+}
+
+func NewNotifier(endpoint, key string) (*Notifier, error) {
+	return &Notifier{
+		Endpoint: endpoint,
+		Key:      key,
+	}, nil
 }
 
 func (u *Notifier) SendMessage(message string) error {
-	chatId := util.MustFetchNonEmptyParam("TG_CHATID")
-	cid, _ := strconv.ParseInt(chatId, 10, 64)
-	msg := tgbotapi.NewMessage(cid, message)
-	_, err := u.bot.Send(msg)
-	return err
+	timestamp := time.Now().Unix()
+	signature, err := GenSign(u.Key, timestamp)
+	if err != nil {
+		return err
+	}
+	msg := &Message{
+		Timestamp: fmt.Sprintf("%d", timestamp),
+		Sign:      signature,
+		MsgType:   "text",
+		Content: TextContext{
+			Text: message,
+		},
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(
+		context.Background(),
+		"POST",
+		u.Endpoint,
+		bytes.NewBuffer(data),
+	)
+	if err != nil {
+		log.Printf("new request error: %v\n", err)
+	}
+	request.Header.Set("Content-Type", "application/json; charset=UTF-8")
+
+	client := &http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	return nil
 }

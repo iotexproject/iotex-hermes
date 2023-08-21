@@ -11,6 +11,7 @@ import (
 
 	"github.com/iotexproject/iotex-hermes/cmd/dao"
 	"github.com/iotexproject/iotex-hermes/cmd/distribute"
+	"github.com/iotexproject/iotex-hermes/util"
 )
 
 func main() {
@@ -19,7 +20,7 @@ func main() {
 		log.Fatalf("create database error: %v\n", err)
 	}
 
-	notifier, err := distribute.NewNotifier()
+	notifier, err := distribute.NewNotifier(util.MustFetchNonEmptyParam("LARK_ENDPOINT"), util.MustFetchNonEmptyParam("LARK_KEY"))
 	if err != nil {
 		log.Fatalf("new notifier error: %v\n", err)
 	}

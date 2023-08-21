@@ -42,7 +42,7 @@ func main() {
 		log.Fatalf("create database error: %v\n", err)
 	}
 
-	notifier, err := distribute.NewNotifier()
+	notifier, err := distribute.NewNotifier(util.MustFetchNonEmptyParam("LARK_ENDPOINT"), util.MustFetchNonEmptyParam("LARK_KEY"))
 	if err != nil {
 		log.Fatalf("new notifier error: %v\n", err)
 	}
