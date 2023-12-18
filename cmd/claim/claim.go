@@ -19,6 +19,7 @@ import (
 	"github.com/iotexproject/iotex-proto/golang/protocol"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
 
 	"github.com/iotexproject/iotex-hermes/util"
 )
@@ -43,12 +44,23 @@ func Reward() (*big.Int, error) {
 		return nil, err
 	}
 
+	tls := util.MustFetchNonEmptyParam("RPC_TLS")
 	endpoint := util.MustFetchNonEmptyParam("IO_ENDPOINT")
-	conn, err := iotex.NewDefaultGRPCConn(endpoint)
-	if err != nil {
-		return nil, err
+	var conn *grpc.ClientConn
+
+	if tls == "true" {
+		conn, err = iotex.NewDefaultGRPCConn(endpoint)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		conn, err = iotex.NewGRPCConnWithoutTLS(endpoint)
+		if err != nil {
+			return nil, err
+		}
 	}
 	defer conn.Close()
+
 	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, account)
 
 	// get current epoch and block height
