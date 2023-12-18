@@ -27,6 +27,7 @@ import (
 	"github.com/shurcooL/graphql"
 	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
+	"google.golang.org/grpc"
 
 	"github.com/iotexproject/iotex-hermes/cmd/dao"
 	"github.com/iotexproject/iotex-hermes/util"
@@ -63,10 +64,20 @@ func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender a
 		return fmt.Errorf("key and address do not match")
 	}
 
+	tls := util.MustFetchNonEmptyParam("RPC_TLS")
 	endpoint := util.MustFetchNonEmptyParam("IO_ENDPOINT")
-	conn, err := iotex.NewDefaultGRPCConn(endpoint)
-	if err != nil {
-		return err
+	var conn *grpc.ClientConn
+
+	if tls == "true" {
+		conn, err = iotex.NewDefaultGRPCConn(endpoint)
+		if err != nil {
+			return err
+		}
+	} else {
+		conn, err = iotex.NewGRPCConnWithoutTLS(endpoint)
+		if err != nil {
+			return err
+		}
 	}
 	defer conn.Close()
 	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, account)

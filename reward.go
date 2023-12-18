@@ -16,6 +16,7 @@ import (
 	"github.com/iotexproject/iotex-antenna-go/v2/account"
 	"github.com/iotexproject/iotex-antenna-go/v2/iotex"
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
+	"google.golang.org/grpc"
 
 	"github.com/iotexproject/iotex-hermes/cmd/claim"
 	"github.com/iotexproject/iotex-hermes/cmd/dao"
@@ -25,11 +26,22 @@ import (
 
 // main runs the hermes command
 func main() {
+	tls := util.MustFetchNonEmptyParam("RPC_TLS")
 	endpoint := util.MustFetchNonEmptyParam("IO_ENDPOINT")
-	conn, err := iotex.NewDefaultGRPCConn(endpoint)
-	if err != nil {
-		log.Fatalf("construct grpc connection error: %v\n", err)
+	var conn *grpc.ClientConn
+	var err error
+	if tls == "true" {
+		conn, err = iotex.NewDefaultGRPCConn(endpoint)
+		if err != nil {
+			log.Fatalf("construct grpc connection error: %v\n", err)
+		}
+	} else {
+		conn, err = iotex.NewGRPCConnWithoutTLS(endpoint)
+		if err != nil {
+			log.Fatalf("construct grpc connection error: %v\n", err)
+		}
 	}
+
 	defer conn.Close()
 	emptyAccount, err := account.NewAccount()
 	if err != nil {
