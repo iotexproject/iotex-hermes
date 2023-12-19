@@ -330,9 +330,8 @@ func sendRewards(
 	for _, amount := range amountList {
 		totalAmount.Add(totalAmount, amount)
 	}
-	// TODO add switch
-	// fmt.Printf("Delegate Name: %s, Group Total Voter Count: %d, Group Total Amount: %s, Tip: %s\n", delegateName,
-	// 	len(voterAddrList), totalAmount.String(), minTips.String())
+	fmt.Printf("Delegate Name: %s, Group Total Voter Count: %d, Group Total Amount: %s, Tip: %s\n", delegateName,
+		len(voterAddrList), totalAmount.String(), minTips.String())
 
 	name := stringToBytes32(delegateName)
 
@@ -569,14 +568,20 @@ func GetBookkeeping(c iotex.AuthedClient, startEpoch uint64, epochCount uint64, 
 		}
 		// charge fees
 		var err error
-		serviceFee := big.NewInt(0)
+		// serviceFee := big.NewInt(0)
+		// if !hermesDistribution.WaiveServiceFee {
+		// 	if serviceFee, refund, err = calculateServiceFee(int64(hermesDistribution.VoterCount), refund); err != nil {
+		// 		return nil, err
+		// 	}
+		// }
 		if !hermesDistribution.WaiveServiceFee {
-			if serviceFee, refund, err = calculateServiceFee(int64(hermesDistribution.VoterCount), refund); err != nil {
+			if _, refund, err = calculateServiceFee(int64(hermesDistribution.VoterCount), refund); err != nil {
 				return nil, err
 			}
 		}
-		fmt.Printf("Delegate Name: %s, Service Fee: %s, Refund: %s\n", string(hermesDistribution.DelegateName),
-			serviceFee.String(), refund.String())
+		// TODO remove print delegate rewards
+		// fmt.Printf("Delegate Name: %s, Service Fee: %s, Refund: %s\n", string(hermesDistribution.DelegateName),
+		// 	serviceFee.String(), refund.String())
 
 		delegateIotexStakingAddr := string(hermesDistribution.StakingIotexAddress)
 		if _, ok := distributionMap[delegateIotexStakingAddr]; !ok {
