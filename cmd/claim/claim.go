@@ -11,9 +11,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
-	"strconv"
+	"strings"
 	"time"
 
+	"github.com/iotexproject/go-pkgs/hash"
 	"github.com/iotexproject/iotex-antenna-go/v2/iotex"
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
 	"github.com/iotexproject/iotex-proto/golang/protocol"
@@ -106,22 +107,35 @@ func claim(c iotex.AuthedClient, unclaimedBalance *big.Int) error {
 	if err != nil {
 		return err
 	}
-	sleepIntervalStr := util.MustFetchNonEmptyParam("SLEEP_INTERVAL")
-	sleepInterval, err := strconv.Atoi(sleepIntervalStr)
-	if err != nil {
-		return err
-	}
-	time.Sleep(time.Duration(sleepInterval) * time.Second)
 
-	resp, err := c.API().GetReceiptByAction(ctx, &iotexapi.GetReceiptByActionRequest{
-		ActionHash: hex.EncodeToString(hash[:]),
-	})
+	err = checkActionReceipt(c, hash)
 	if err != nil {
 		return err
-	}
-	if resp.ReceiptInfo.Receipt.Status != 1 {
-		return errors.Errorf("claim rewards failed: %x", hash)
 	}
 	fmt.Println("successfully claim rewards")
 	return nil
+}
+
+func checkActionReceipt(c iotex.AuthedClient, hash hash.Hash256) error {
+	time.Sleep(5 * time.Second)
+	var resp *iotexapi.GetReceiptByActionResponse
+	var err error
+	for i := 0; i < 120; i++ {
+		resp, err = c.API().GetReceiptByAction(context.Background(), &iotexapi.GetReceiptByActionRequest{
+			ActionHash: hex.EncodeToString(hash[:]),
+		})
+		if err != nil {
+			if strings.Contains(err.Error(), "code = NotFound") {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			return err
+		}
+		if resp.ReceiptInfo.Receipt.Status != 1 {
+			return errors.Errorf("action %x check receipt failed", hash)
+		}
+		return nil
+	}
+	fmt.Printf("action %x check receipt not found\n", hash)
+	return err
 }

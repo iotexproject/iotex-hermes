@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	ethCrypto "github.com/ethereum/go-ethereum/crypto"
@@ -56,4 +57,18 @@ func GetAccount(path, passphrase string) (account.Account, error) {
 	}
 
 	return account.PrivateKeyToAccount(pk)
+}
+
+func GetClaimedEpoch() uint64 {
+	data, err := os.ReadFile("./epoch")
+	if err != nil {
+		return 0
+	}
+	epoch, _ := strconv.ParseUint(string(data), 10, 64)
+	return epoch
+}
+
+func SaveClaimedEpoch(epoch uint64) {
+	data := []byte(fmt.Sprintf("%d", epoch))
+	os.WriteFile("./epoch", data, 0644)
 }

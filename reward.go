@@ -101,8 +101,8 @@ func main() {
 			}
 		}
 
-		skipClaim := util.MustFetchNonEmptyParam("SKIP_CLAIM")
-		if skipClaim != "true" {
+		claimedEpoch := util.GetClaimedEpoch()
+		if claimedEpoch != endEpoch {
 			amount, err := claim.Reward()
 			if err != nil {
 				log.Printf("claim reward error: %v\n", err)
@@ -111,6 +111,7 @@ func main() {
 				continue
 			}
 			notifier.SendMessage(fmt.Sprintf("Claimed hermes rewards %s", amount.String()))
+			util.SaveClaimedEpoch(endEpoch)
 		}
 		// _, lastEpoch, err := dao.SumByEndEpoch(lastEndEpoch)
 		// if err != nil {
