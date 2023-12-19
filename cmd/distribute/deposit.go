@@ -117,7 +117,6 @@ func (s *accountSender) send() {
 		if err != nil {
 			log.Printf("add deposit %d error: %v\n", record.ID, err)
 			if ignore {
-				time.Sleep(1 * time.Minute)
 				if strings.HasSuffix(err.Error(), "insufficient funds for gas * price + value") {
 					s.notifier.SendMessage(fmt.Sprintf("Deposit %d error: %v", record.ID, err))
 					break
