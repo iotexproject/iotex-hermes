@@ -115,14 +115,18 @@ func (s *accountSender) send() {
 		}
 		h, ignore, ra, err := addDepositOrTransfer(client, record.ID, record.Index, record.Voter, record.DelegateName, amount)
 		if err != nil {
-			log.Printf("add deposit %d error: %v\n", record.ID, err)
 			if ignore {
 				if strings.HasSuffix(err.Error(), "insufficient funds for gas * price + value") {
 					s.notifier.SendMessage(fmt.Sprintf("Deposit %d error: %v", record.ID, err))
 					break
 				}
+				if !strings.HasSuffix(err.Error(), "exceeds block gas limit") {
+					log.Printf("add deposit %d with ignore error: %v\n", record.ID, err)
+				}
+
 				continue
 			} else {
+				log.Printf("add deposit %d error: %v\n", record.ID, err)
 				if !strings.HasPrefix(err.Error(), "add deposit error by exhausted retry") {
 					s.notifier.SendMessage(fmt.Sprintf("Deposit %d error: %v", record.ID, err))
 				}
