@@ -330,8 +330,9 @@ func sendRewards(
 	for _, amount := range amountList {
 		totalAmount.Add(totalAmount, amount)
 	}
-	fmt.Printf("Delegate Name: %s, Group Total Voter Count: %d, Group Total Amount: %s, Tip: %s\n", delegateName,
-		len(voterAddrList), totalAmount.String(), minTips.String())
+	// TODO add switch
+	// fmt.Printf("Delegate Name: %s, Group Total Voter Count: %d, Group Total Amount: %s, Tip: %s\n", delegateName,
+	// 	len(voterAddrList), totalAmount.String(), minTips.String())
 
 	name := stringToBytes32(delegateName)
 
