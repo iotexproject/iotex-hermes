@@ -129,6 +129,7 @@ func main() {
 		err = distribute.Reward(notifier, nil, 0, sender)
 		if err != nil {
 			log.Printf("distribute reward error: %v\n", err)
+			notifier.SendMessage(fmt.Sprintf("Send rewards error %v", err))
 			retry++
 			time.Sleep(5 * time.Minute)
 			continue
