@@ -61,9 +61,9 @@ func main() {
 
 	retry := 0
 	for {
-		if retry == 3 {
-			log.Fatalf("retry 2 times failure, exit.")
-		}
+		// if retry == 3 {
+		// 	log.Fatalf("retry 2 times failure, exit.")
+		// }
 		lastEndEpoch, err := distribute.GetLastEndEpoch(c)
 		if err != nil {
 			log.Printf("get last end epoch error: %v\n", err)
