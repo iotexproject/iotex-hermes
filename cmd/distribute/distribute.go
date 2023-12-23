@@ -18,12 +18,16 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/iotexproject/go-pkgs/hash"
 	"github.com/iotexproject/iotex-address/address"
 	"github.com/iotexproject/iotex-antenna-go/v2/iotex"
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
+	"github.com/jinzhu/gorm"
 	"github.com/pkg/errors"
 	"github.com/shurcooL/graphql"
 	"github.com/spf13/cobra"
+	"golang.org/x/oauth2"
+	"google.golang.org/grpc"
 
 	"github.com/iotexproject/iotex-hermes/cmd/dao"
 	"github.com/iotexproject/iotex-hermes/util"
@@ -36,7 +40,7 @@ var DistributeCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
-		return Reward()
+		return Reward(nil, nil, 0, nil)
 	},
 }
 
@@ -44,11 +48,12 @@ var DistributeCmd = &cobra.Command{
 type DistributionInfo struct {
 	DelegateName  string
 	RecipientList []common.Address
+	Total         *big.Int
 	AmountList    []*big.Int
 }
 
 // Reward distribute reward to voter group by delegate
-func Reward() error {
+func Reward(notifier *Notifier, lastDeposit *big.Int, lastEpoch uint64, sender address.Address) error {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	account, err := util.GetVaultAccount(pwd)
 	if err != nil {
@@ -59,18 +64,32 @@ func Reward() error {
 		return fmt.Errorf("key and address do not match")
 	}
 
+	tls := util.MustFetchNonEmptyParam("RPC_TLS")
 	endpoint := util.MustFetchNonEmptyParam("IO_ENDPOINT")
-	conn, err := iotex.NewDefaultGRPCConn(endpoint)
-	if err != nil {
-		return err
+	var conn *grpc.ClientConn
+
+	if tls == "true" {
+		conn, err = iotex.NewDefaultGRPCConn(endpoint)
+		if err != nil {
+			return err
+		}
+	} else {
+		conn, err = iotex.NewGRPCConnWithoutTLS(endpoint)
+		if err != nil {
+			return err
+		}
 	}
 	defer conn.Close()
-	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), account)
+	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, account)
 
 	// query GraphQL to get the distribution list
 	endEpoch, tip, distributions, err := getDistribution(c)
 	if err != nil {
 		return err
+	}
+
+	if notifier != nil {
+		notifier.SendMessage(fmt.Sprintf("Begin send %d epoch hermes rewards", endEpoch.Uint64()))
 	}
 
 	// call distribution contract to send out rewards
@@ -79,12 +98,56 @@ func Reward() error {
 	if err != nil {
 		return err
 	}
+	chargeFeeStr := util.MustFetchNonEmptyParam("CHARGE_FEE")
+	chargeFee, _ := new(big.Int).SetString(chargeFeeStr, 10)
+	minRewardsStr := util.MustFetchNonEmptyParam("MIN_REWARDS")
+	minRewards, _ := new(big.Int).SetString(minRewardsStr, 10)
+
 	delegateNames := make([][32]byte, 0, len(distributions))
+	total := big.NewInt(0)
 	for _, dist := range distributions {
+		fmt.Printf("%s total rewards: %s\n", dist.DelegateName, dist.Total.String())
+		total = new(big.Int).Add(total, dist.Total)
 		delegateNames = append(delegateNames, stringToBytes32(dist.DelegateName))
-		divAddrList, divAmountList, err := splitRecipients(chunkSize, dist.RecipientList, dist.AmountList)
+
+		snapshot, err := LoadSnapshot(dist.DelegateName, endEpoch.Uint64())
 		if err != nil {
 			return err
+		}
+		var divAddrList [][]common.Address
+		var divAmountList [][]*big.Int
+		var totalRecipients int
+		if snapshot == nil {
+			tx := dao.Transaction()
+			divAddrList, divAmountList, totalRecipients, err = splitRecipients(
+				c,
+				tx,
+				minRewards,
+				chargeFee,
+				dist.DelegateName,
+				endEpoch.Uint64(),
+				chunkSize,
+				dist.RecipientList,
+				dist.AmountList,
+			)
+			if err != nil {
+				tx.Rollback()
+				return err
+			}
+			tx.Commit()
+			snapshot = &Snapshot{
+				DivAddrList:     divAddrList,
+				DivAmountList:   divAmountList,
+				TotalRecipients: totalRecipients,
+			}
+			err = snapshot.Save(dist.DelegateName, endEpoch.Uint64())
+			if err != nil {
+				return err
+			}
+		} else {
+			divAddrList = snapshot.DivAddrList
+			divAmountList = snapshot.DivAmountList
+			totalRecipients = snapshot.TotalRecipients
 		}
 		for {
 			distrbutedCount, err := getDistributedCount(c, dist.DelegateName)
@@ -92,12 +155,12 @@ func Reward() error {
 				return err
 			}
 			// distribution is done for the delegate
-			if int(distrbutedCount) == len(dist.RecipientList) {
+			if int(distrbutedCount) == totalRecipients {
 				break
 			}
 			if int(distrbutedCount)%chunkSize != 0 {
 				return fmt.Errorf("invalid distributed count, Delegate Name: %s, Distributed Count: %d, Number of Recipients: %d",
-					dist.DelegateName, distrbutedCount, len(dist.RecipientList))
+					dist.DelegateName, distrbutedCount, totalRecipients)
 			}
 			nextGroup := int(distrbutedCount) / chunkSize
 			if err := sendRewards(c, dist.DelegateName, endEpoch, tip, divAddrList[nextGroup], divAmountList[nextGroup]); err != nil {
@@ -105,7 +168,99 @@ func Reward() error {
 			}
 		}
 	}
-	return commitDistributions(c, endEpoch, delegateNames)
+	if notifier != nil {
+		notifier.SendMessage(fmt.Sprintf("epoch %d total rewards: %s", endEpoch, total.String()))
+	}
+	err = dao.BakCompletedRecord()
+	if err != nil {
+		if notifier != nil {
+			notifier.SendMessage(fmt.Sprintf("Bak completed records error: %v", err))
+		}
+	}
+	err = commitDistributions(c, endEpoch, delegateNames)
+	if err != nil {
+		return err
+	}
+	total, err = mergeCompound()
+	if err != nil {
+		return err
+	}
+
+	acc, err := c.API().GetAccount(context.Background(), &iotexapi.GetAccountRequest{
+		Address: c.Account().Address().String(),
+	})
+	if err != nil {
+		return err
+	}
+	balance, _ := new(big.Int).SetString(acc.AccountMeta.Balance, 10)
+	if balance.Cmp(total) < 0 {
+		fmt.Printf("Account balance less than compound rewards: %s < %s\n", balance.String(), total.String())
+		if notifier != nil {
+			notifier.SendMessage(fmt.Sprintf("Account balance less than compound rewards: %s < %s", balance.String(), total.String()))
+		}
+		total = new(big.Int).Sub(balance, big.NewInt(1000000000000000000))
+	}
+	hash, _ := c.Transfer(sender, total).SetGasPrice(big.NewInt(1000000000000)).SetGasLimit(10000).Call(context.Background())
+	if notifier != nil {
+		notifier.SendMessage(fmt.Sprintf("transfer %s to compound sender with hash: %s", total.String(), hex.EncodeToString(hash[:])))
+	}
+	time.Sleep(20 * time.Second)
+	err = checkActionReceipt(c, hash)
+	if err != nil {
+		if notifier != nil {
+			notifier.SendMessage(fmt.Sprintf("send transfer sender action %s error: %v", hex.EncodeToString(hash[:]), err))
+		}
+	}
+
+	if notifier != nil {
+		notifier.SendMessage(fmt.Sprintf("Complete epoch %d hermes rewards", endEpoch))
+	}
+	return nil
+}
+
+func mergeCompound() (*big.Int, error) {
+	voters, err := dao.FindVotersByStatus("pending")
+	if err != nil {
+		return nil, fmt.Errorf("query new voters error: %v", err)
+	}
+	total := big.NewInt(0)
+	for _, voter := range voters {
+		rows, err := dao.FindByVoterAndStatus(voter, "pending")
+		if err != nil {
+			return nil, fmt.Errorf("query new rewards by voter error: %v", err)
+		}
+		if len(rows) < 2 {
+			amount, _ := new(big.Int).SetString(rows[0].Amount, 10)
+			total = new(big.Int).Add(total, amount)
+			rows[0].Status = "new"
+			rows[0].Signature = ""
+			if err = rows[0].Save(dao.DB()); err != nil {
+				return nil, fmt.Errorf("save merged to record error: %v", err)
+			}
+			continue
+		}
+		tx := dao.Transaction()
+		amount, _ := new(big.Int).SetString(rows[0].Amount, 10)
+		for i := 1; i < len(rows); i++ {
+			temp, _ := new(big.Int).SetString(rows[i].Amount, 10)
+			amount = new(big.Int).Add(amount, temp)
+			rows[i].Status = fmt.Sprintf("merged-%d", rows[0].ID)
+			if err = rows[i].Save(tx); err != nil {
+				tx.Rollback()
+				return nil, fmt.Errorf("save merged record error: %v", err)
+			}
+		}
+		total = new(big.Int).Add(total, amount)
+		rows[0].Status = "new"
+		rows[0].Signature = ""
+		rows[0].Amount = amount.String()
+		if err = rows[0].Save(tx); err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("save merged to record error: %v", err)
+		}
+		tx.Commit()
+	}
+	return total, nil
 }
 
 func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionInfo, error) {
@@ -143,7 +298,7 @@ func getDistribution(c iotex.AuthedClient) (*big.Int, *big.Int, []*DistributionI
 
 	rewardAddress := c.Account().Address().String()
 	epochCount := endEpoch - startEpoch + 1
-	distributions, err := getBookkeeping(startEpoch, epochCount, rewardAddress)
+	distributions, err := GetBookkeeping(c, startEpoch, epochCount, rewardAddress)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -171,35 +326,6 @@ func sendRewards(
 		return err
 	}
 
-	for i := 0; i < len(voterAddrList); i++ {
-		bucketID, err := GetBucketID(c, voterAddrList[i])
-		if err != nil {
-			fmt.Printf("Query bucketID from contract error: %v\n", err)
-			continue
-		}
-		if bucketID != -1 {
-			addr, err := address.FromBytes(voterAddrList[i][:])
-			if err != nil {
-				fmt.Printf("Convert address error: %v\n", err)
-				continue
-			}
-			drop := dao.DropRecord{
-				EndEpoch:     endEpoch.Uint64(),
-				DelegateName: delegateName,
-				Voter:        addr.String(),
-				Amount:       amountList[i].String(),
-				Index:        uint64(bucketID),
-				Status:       "new",
-			}
-			err = drop.Save(dao.DB())
-			if err != nil {
-				fmt.Printf("Save drop record error: %v\n", err)
-				continue
-			}
-			amountList[i] = big.NewInt(0)
-		}
-	}
-
 	totalAmount := new(big.Int).Set(minTips)
 	for _, amount := range amountList {
 		totalAmount.Add(totalAmount, amount)
@@ -224,23 +350,8 @@ func sendRewards(
 	if err != nil {
 		return err
 	}
-	sleepIntervalStr := util.MustFetchNonEmptyParam("SLEEP_INTERVAL")
-	sleepInterval, err := strconv.Atoi(sleepIntervalStr)
-	if err != nil {
-		return err
-	}
-	time.Sleep(time.Duration(sleepInterval) * time.Second)
 
-	resp, err := c.API().GetReceiptByAction(ctx, &iotexapi.GetReceiptByActionRequest{
-		ActionHash: hex.EncodeToString(h[:]),
-	})
-	if err != nil {
-		return err
-	}
-	if resp.ReceiptInfo.Receipt.Status != 1 {
-		return errors.Errorf("distributeRewards failed: %x", h)
-	}
-	return nil
+	return checkActionReceipt(c, h)
 }
 
 func commitDistributions(c iotex.AuthedClient, endEpoch *big.Int, delegateNames [][32]byte) error {
@@ -272,23 +383,11 @@ func commitDistributions(c iotex.AuthedClient, endEpoch *big.Int, delegateNames 
 	if err != nil {
 		return err
 	}
-	sleepIntervalStr := util.MustFetchNonEmptyParam("SLEEP_INTERVAL")
-	sleepInterval, err := strconv.Atoi(sleepIntervalStr)
+
+	err = checkActionReceipt(c, h)
 	if err != nil {
 		return err
 	}
-	time.Sleep(time.Duration(sleepInterval) * time.Second)
-
-	resp, err := c.API().GetReceiptByAction(ctx, &iotexapi.GetReceiptByActionRequest{
-		ActionHash: hex.EncodeToString(h[:]),
-	})
-	if err != nil {
-		return err
-	}
-	if resp.ReceiptInfo.Receipt.Status != 1 {
-		return errors.Errorf("commitDistributions failed: %x", h)
-	}
-
 	fmt.Println("successfully distribute rewards")
 	return nil
 }
@@ -307,10 +406,11 @@ func getMinTips(c iotex.AuthedClient) (*big.Int, error) {
 	if err != nil {
 		return nil, err
 	}
-	var minTips *big.Int
-	if err := data.Unmarshal(&minTips); err != nil {
+	decoded, err := data.Unmarshal()
+	if err != nil {
 		return nil, err
 	}
+	minTips := decoded[0].(*big.Int)
 
 	fmt.Printf("MultiSend Contract: %s, min tip: %s\n", cstring, minTips.String())
 	return minTips, nil
@@ -330,11 +430,12 @@ func getContractStartEpoch(c iotex.AuthedClient) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	var contractStartEpoch *big.Int
-	if err := data.Unmarshal(&contractStartEpoch); err != nil {
+	decoded, err := data.Unmarshal()
+	if err != nil {
 		return 0, err
 	}
-	return contractStartEpoch.Uint64(), nil
+
+	return decoded[0].(*big.Int).Uint64(), nil
 }
 
 // GetLastEndEpoch get last end epoch from hermes contract
@@ -352,10 +453,11 @@ func GetLastEndEpoch(c iotex.AuthedClient) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	var endEpochCount *big.Int
-	if err := data.Unmarshal(&endEpochCount); err != nil {
+	decoded, err := data.Unmarshal()
+	if err != nil {
 		return 0, err
 	}
+	endEpochCount := decoded[0].(*big.Int)
 
 	if endEpochCount.String() == "0" {
 		return 0, nil
@@ -364,11 +466,11 @@ func GetLastEndEpoch(c iotex.AuthedClient) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	var lastEndEpoch *big.Int
-	if err := data.Unmarshal(&lastEndEpoch); err != nil {
+	decoded, err = data.Unmarshal()
+	if err != nil {
 		return 0, err
 	}
-	return lastEndEpoch.Uint64(), nil
+	return decoded[0].(*big.Int).Uint64(), nil
 }
 
 func getDistributedCount(c iotex.AuthedClient, delegateName string) (uint64, error) {
@@ -387,17 +489,16 @@ func getDistributedCount(c iotex.AuthedClient, delegateName string) (uint64, err
 	if err != nil {
 		return 0, err
 	}
-	var distributedCount *big.Int
-	if err := data.Unmarshal(&distributedCount); err != nil {
+	decoded, err := data.Unmarshal()
+	if err != nil {
 		return 0, err
 	}
-	return distributedCount.Uint64(), nil
+	return decoded[0].(*big.Int).Uint64(), nil
 }
 
-func getBookkeeping(startEpoch uint64, epochCount uint64, rewardAddress string) ([]*DistributionInfo, error) {
+func GetBookkeeping(c iotex.AuthedClient, startEpoch uint64, epochCount uint64, rewardAddress string) ([]*DistributionInfo, error) {
 	type query struct {
 		Hermes struct {
-			Exist              graphql.Boolean
 			HermesDistribution []struct {
 				DelegateName       graphql.String
 				RewardDistribution []struct {
@@ -409,48 +510,44 @@ func getBookkeeping(startEpoch uint64, epochCount uint64, rewardAddress string) 
 				WaiveServiceFee     graphql.Boolean
 				Refund              graphql.String
 			}
-		} `graphql:"hermes(startEpoch: $startEpoch, epochCount: $epochCount, rewardAddress: $rewardAddress, waiverThreshold: $waiverThreshold)"`
+		} `graphql:"Hermes(startEpoch: $startEpoch, epochCount: $epochCount, rewardAddress: $rewardAddress)"`
 	}
 
 	analyticsEndpoint := util.MustFetchNonEmptyParam("ANALYTICS_ENDPOINT")
 
-	gqlClient := graphql.NewClient(analyticsEndpoint, nil)
-
-	waiverThresholdStr := util.MustFetchNonEmptyParam("WAIVER_THRESHOLD")
-	waiverThreshold, err := strconv.Atoi(waiverThresholdStr)
-	if err != nil {
-		return nil, err
-	}
+	src := oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: util.MustFetchNonEmptyParam("ANALYTICS_TOKEN")},
+	)
+	httpClient := oauth2.NewClient(context.Background(), src)
+	gqlClient := graphql.NewClient(analyticsEndpoint, httpClient)
 
 	// make sure every epoch does not miss hermes info
 	for epoch := startEpoch; epoch < startEpoch+epochCount; epoch++ {
 		tempVariables := map[string]interface{}{
-			"startEpoch":      graphql.Int(epoch),
-			"epochCount":      graphql.Int(1),
-			"rewardAddress":   graphql.String(rewardAddress),
-			"waiverThreshold": graphql.Int(waiverThreshold),
+			"startEpoch":    graphql.Int(epoch),
+			"epochCount":    graphql.Int(1),
+			"rewardAddress": graphql.String(rewardAddress),
 		}
 		var tempOutput query
 		if err := gqlClient.Query(context.Background(), &tempOutput, tempVariables); err != nil {
 			return nil, err
 		}
-		if !tempOutput.Hermes.Exist {
+		if len(tempOutput.Hermes.HermesDistribution) == 0 {
 			return nil, errors.New(fmt.Sprintf("bookkeeping info doesn't exist for Epoch %d\n", epoch))
 		}
 	}
 
 	variables := map[string]interface{}{
-		"startEpoch":      graphql.Int(startEpoch),
-		"epochCount":      graphql.Int(epochCount),
-		"rewardAddress":   graphql.String(rewardAddress),
-		"waiverThreshold": graphql.Int(waiverThreshold),
+		"startEpoch":    graphql.Int(startEpoch),
+		"epochCount":    graphql.Int(epochCount),
+		"rewardAddress": graphql.String(rewardAddress),
 	}
 	var output query
 	if err := gqlClient.Query(context.Background(), &output, variables); err != nil {
 		return nil, err
 	}
 
-	if !output.Hermes.Exist {
+	if len(output.Hermes.HermesDistribution) == 0 {
 		return nil, errors.New("bookkeeping info doesn't exist within the epoch range")
 	}
 
@@ -470,14 +567,21 @@ func getBookkeeping(startEpoch uint64, epochCount uint64, rewardAddress string) 
 			return nil, errors.New("failed to convert string to big int")
 		}
 		// charge fees
-		serviceFee := big.NewInt(0)
+		var err error
+		// serviceFee := big.NewInt(0)
+		// if !hermesDistribution.WaiveServiceFee {
+		// 	if serviceFee, refund, err = calculateServiceFee(int64(hermesDistribution.VoterCount), refund); err != nil {
+		// 		return nil, err
+		// 	}
+		// }
 		if !hermesDistribution.WaiveServiceFee {
-			if serviceFee, refund, err = calculateServiceFee(int64(hermesDistribution.VoterCount), refund); err != nil {
+			if _, refund, err = calculateServiceFee(int64(hermesDistribution.VoterCount), refund); err != nil {
 				return nil, err
 			}
 		}
-		fmt.Printf("Delegate Name: %s, Service Fee: %s, Refund: %s\n", string(hermesDistribution.DelegateName),
-			serviceFee.String(), refund.String())
+		// TODO remove print delegate rewards
+		// fmt.Printf("Delegate Name: %s, Service Fee: %s, Refund: %s\n", string(hermesDistribution.DelegateName),
+		// 	serviceFee.String(), refund.String())
 
 		delegateIotexStakingAddr := string(hermesDistribution.StakingIotexAddress)
 		if _, ok := distributionMap[delegateIotexStakingAddr]; !ok {
@@ -495,18 +599,21 @@ func getBookkeeping(startEpoch uint64, epochCount uint64, rewardAddress string) 
 
 		recipientAddrList := make([]common.Address, 0, len(distributionMap))
 		amountList := make([]*big.Int, 0, len(distributionMap))
+		total := big.NewInt(0)
 		for _, k := range keys {
-			caddr, err := ioAddrToEvmAddr(k)
+			caddr, err := ioAddrToEvmAddr(c, k)
 			if err != nil {
 				return nil, err
 			}
 			recipientAddrList = append(recipientAddrList, caddr)
 			amountList = append(amountList, distributionMap[k])
+			total = new(big.Int).Add(total, distributionMap[k])
 		}
 
 		distributions = append(distributions, &DistributionInfo{
 			DelegateName:  string(hermesDistribution.DelegateName),
 			RecipientList: recipientAddrList,
+			Total:         total,
 			AmountList:    amountList,
 		})
 	}
@@ -540,33 +647,115 @@ func calculateServiceFee(voterCount int64, refund *big.Int) (*big.Int, *big.Int,
 	return serviceFee, refund, nil
 }
 
-func splitRecipients(chunkSize int, recipientAddrList []common.Address, amountList []*big.Int) ([][]common.Address, [][]*big.Int, error) {
+func splitRecipients(
+	c iotex.AuthedClient,
+	tx *gorm.DB,
+	minRewards *big.Int,
+	chargeFee *big.Int,
+	delegateName string,
+	endEpoch uint64,
+	chunkSize int,
+	recipientAddrList []common.Address,
+	amountList []*big.Int,
+) ([][]common.Address, [][]*big.Int, int, error) {
 	if len(recipientAddrList) != len(amountList) {
-		return nil, nil, errors.New("length does not match")
+		return nil, nil, 0, errors.New("length does not match")
 	}
+
+	var innerAddrList []common.Address
+	var innerAmountList []*big.Int
+	for i := 0; i < len(recipientAddrList); i++ {
+		smallAmount := big.NewInt(0)
+		recipient, _ := address.FromBytes(recipientAddrList[i][:])
+		smallRecords, err := dao.FindPendingSmalls(recipient.String(), delegateName, endEpoch)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		for _, v := range smallRecords {
+			if v.Verify() != nil {
+				v.Status = "invalid"
+				v.Save(tx)
+				fmt.Printf("Invalid verify: %v\n", err)
+				continue
+			}
+			recordAmount, _ := new(big.Int).SetString(v.Amount, 10)
+			smallAmount = new(big.Int).Add(smallAmount, recordAmount)
+		}
+		mergedAmount := new(big.Int).Add(smallAmount, amountList[i])
+
+		if mergedAmount.Cmp(minRewards) >= 0 {
+			bucketID, err := GetBucketID(c, recipientAddrList[i])
+			if err != nil {
+				fmt.Printf("Query bucketID from contract error: %v\n", err)
+				bucketID = -1
+			}
+			if bucketID != -1 {
+				// compound records
+				drop := dao.DropRecord{
+					EndEpoch:     endEpoch,
+					DelegateName: delegateName,
+					Voter:        recipient.String(),
+					Amount:       mergedAmount.String(),
+					Index:        uint64(bucketID),
+					Status:       "pending",
+				}
+				err = drop.Save(tx)
+				if err != nil {
+					fmt.Printf("Save drop record error: %v\n", err)
+					return nil, nil, 0, err
+				}
+			} else {
+				innerAddrList = append(innerAddrList, recipientAddrList[i])
+				innerAmountList = append(innerAmountList, new(big.Int).Sub(mergedAmount, chargeFee))
+			}
+			for _, v := range smallRecords {
+				if v.Status == "new" {
+					v.SentEpoch = endEpoch
+					v.Status = "completed"
+					v.Signature = ""
+					err = v.Save(tx)
+					if err != nil {
+						fmt.Printf("Update small record error: %v\n", err)
+						return nil, nil, 0, err
+					}
+				}
+			}
+		} else {
+			// save small records
+			small := dao.SmallRecord{
+				EndEpoch:     endEpoch,
+				DelegateName: delegateName,
+				Voter:        recipient.String(),
+				Amount:       amountList[i].String(),
+				Status:       "new",
+			}
+			err = small.Save(tx)
+			if err != nil {
+				fmt.Printf("Save small record error: %v\n", err)
+				return nil, nil, 0, err
+			}
+		}
+	}
+
 	var divAddrList [][]common.Address
 	var divAmountList [][]*big.Int
 
-	for i := 0; i < len(recipientAddrList); i += chunkSize {
+	for i := 0; i < len(innerAddrList); i += chunkSize {
 		end := i + chunkSize
 
-		if end > len(recipientAddrList) {
-			end = len(recipientAddrList)
+		if end > len(innerAddrList) {
+			end = len(innerAddrList)
 		}
 
-		divAddrList = append(divAddrList, recipientAddrList[i:end])
-		divAmountList = append(divAmountList, amountList[i:end])
+		divAddrList = append(divAddrList, innerAddrList[i:end])
+		divAmountList = append(divAmountList, innerAmountList[i:end])
 	}
 
-	return divAddrList, divAmountList, nil
+	return divAddrList, divAmountList, len(innerAddrList), nil
 }
 
 // ioAddrToEvmAddr converts IoTeX address into evm address
-func ioAddrToEvmAddr(ioAddr string) (common.Address, error) {
-	// temporary fix
-	if ioAddr == "io16y9wk2xnwurvtgmd2mds2gcdfe2lmzad6dcw29" {
-		ioAddr = "io16dkdajys8609qxf78wmmzssgfgvqkk0funzp0r"
-	}
+func ioAddrToEvmAddr(c iotex.AuthedClient, ioAddr string) (common.Address, error) {
 	address, err := address.FromString(ioAddr)
 	if err != nil {
 		return common.Address{}, err
@@ -579,4 +768,28 @@ func stringToBytes32(delegateName string) [32]byte {
 	var name [32]byte
 	copy(name[:], delegateName)
 	return name
+}
+
+func checkActionReceipt(c iotex.AuthedClient, hash hash.Hash256) error {
+	time.Sleep(5 * time.Second)
+	var resp *iotexapi.GetReceiptByActionResponse
+	var err error
+	for i := 0; i < 120; i++ {
+		resp, err = c.API().GetReceiptByAction(context.Background(), &iotexapi.GetReceiptByActionRequest{
+			ActionHash: hex.EncodeToString(hash[:]),
+		})
+		if err != nil {
+			if strings.Contains(err.Error(), "code = NotFound") {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			return err
+		}
+		if resp.ReceiptInfo.Receipt.Status != 1 {
+			return errors.Errorf("action %x check receipt failed", hash)
+		}
+		return nil
+	}
+	fmt.Printf("action %x check receipt not found\n", hash)
+	return err
 }

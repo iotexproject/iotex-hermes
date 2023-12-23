@@ -33,7 +33,7 @@ func TestClaimReward(t *testing.T) {
 	require.NoError(err)
 	defer conn.Close()
 
-	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), account)
+	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, account)
 
 	unClaimedBalance, err := getUnclaimedBalance(c)
 	require.NoError(err)

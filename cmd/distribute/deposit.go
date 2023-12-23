@@ -1,18 +1,23 @@
 package distribute
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
 	"math/big"
+	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/gogo/protobuf/proto"
 	"github.com/iotexproject/go-pkgs/hash"
 	"github.com/iotexproject/iotex-address/address"
 	"github.com/iotexproject/iotex-antenna-go/v2/account"
@@ -20,6 +25,8 @@ import (
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
 	"github.com/iotexproject/iotex-proto/golang/iotextypes"
 	"github.com/pkg/errors"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/iotexproject/iotex-hermes/cmd/dao"
 	"github.com/iotexproject/iotex-hermes/util"
@@ -41,34 +48,58 @@ func GetBucketID(c iotex.AuthedClient, voter common.Address) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	var bucketID *big.Int
-	if err := data.Unmarshal(&bucketID); err != nil {
+
+	bucketID, err := data.Unmarshal()
+	if err != nil {
 		return 0, err
 	}
-	return bucketID.Int64(), nil
+	return bucketID[0].(*big.Int).Int64(), nil
 }
 
 // Sender send drop record
 type Sender struct {
 	Accounts []account.Account
+	Notifier *Notifier
 }
 
 type accountSender struct {
 	account   account.Account
 	records   []dao.DropRecord
 	waitGroup *sync.WaitGroup
+	notifier  *Notifier
+}
+
+type analyserData struct {
+	EpochNumber  uint64 `json:"epochNumber"`
+	DelegateName string `json:"delegateName"`
+	VoterAddress string `json:"voterAddress"`
+	ActHash      string `json:"actHash"`
+	BucketID     uint64 `json:"bucketID"`
+	Amount       string `json:"amount"`
 }
 
 var bucketStateMap = make(map[uint64]bool)
 
 func (s *accountSender) send() {
+	tls := util.MustFetchNonEmptyParam("RPC_TLS")
 	endpoint := util.MustFetchNonEmptyParam("IO_ENDPOINT")
-	conn, err := iotex.NewDefaultGRPCConn(endpoint)
-	if err != nil {
-		log.Fatalf("create grpc error: %v", err)
+
+	var conn *grpc.ClientConn
+	var err error
+
+	if tls == "true" {
+		conn, err = iotex.NewDefaultGRPCConn(endpoint)
+		if err != nil {
+			log.Fatalf("create grpc error: %v", err)
+		}
+	} else {
+		conn, err = iotex.NewGRPCConnWithoutTLS(endpoint)
+		if err != nil {
+			log.Fatalf("create grpc error: %v", err)
+		}
 	}
 	defer conn.Close()
-	client := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), s.account)
+	client := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, s.account)
 
 	for _, record := range s.records {
 		if record.Verify() != nil {
@@ -83,16 +114,30 @@ func (s *accountSender) send() {
 		if !ok {
 			log.Printf("can't convert staking amount: %v\n", record.Amount)
 		}
-		h, err := addDepositOrTransfer(client, record.ID, record.Index, record.Voter, amount)
+		h, ignore, ra, err := addDepositOrTransfer(client, record.ID, record.Index, record.Voter, record.DelegateName, amount)
 		if err != nil {
-			log.Printf("add deposit %d error: %v\n", record.ID, err)
-			record.Status = "error"
-			record.ErrorMessage = err.Error()
-			err = record.Save(dao.DB())
-			if err != nil {
-				log.Fatalf("save error drop records %d:%s error: %v", record.ID, record.Voter, err)
+			if ignore {
+				if strings.HasSuffix(err.Error(), "insufficient funds for gas * price + value") {
+					s.notifier.SendMessage(fmt.Sprintf("Deposit %d error: %v", record.ID, err))
+					os.Exit(1)
+				}
+				if !strings.HasSuffix(err.Error(), "exceeds block gas limit") {
+					log.Printf("add deposit %d with ignore error: %v\n", record.ID, err)
+				}
+
+				continue
+			} else {
+				log.Printf("add deposit %d error: %v\n", record.ID, err)
+				if !strings.HasPrefix(err.Error(), "add deposit error by exhausted retry") {
+					s.notifier.SendMessage(fmt.Sprintf("Deposit %d error: %v", record.ID, err))
+				}
+				record.Status = "error"
+				record.ErrorMessage = err.Error()
+				err = record.Save(dao.DB())
+				if err != nil {
+					log.Fatalf("save error drop records %d:%s error: %v", record.ID, record.Voter, err)
+				}
 			}
-			continue
 		}
 		record.Hash = hex.EncodeToString(h[:])
 		record.Signature = ""
@@ -101,12 +146,61 @@ func (s *accountSender) send() {
 		if err != nil {
 			log.Fatalf("save success drop records %d:%s error: %v", record.ID, record.Voter, err)
 		}
+
+		ad := analyserData{
+			EpochNumber:  record.EndEpoch,
+			DelegateName: record.DelegateName,
+			VoterAddress: record.Voter,
+			BucketID:     record.Index,
+			ActHash:      record.Hash,
+			Amount:       ra.String(),
+		}
+		postAnalyserData(&ad)
 	}
 
 	s.records = nil
 	if s.waitGroup != nil {
 		s.waitGroup.Done()
 		s.waitGroup = nil
+	}
+}
+
+func postAnalyserData(ad *analyserData) {
+	data, err := json.Marshal(ad)
+	if err != nil {
+		log.Printf("marshal data error: %v\n", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func(ctx context.Context) {
+		request, err := http.NewRequestWithContext(
+			ctx,
+			"POST",
+			"https://analyser-api.iotex.io/api.HermesService.HermesDropRecords",
+			bytes.NewBuffer(data),
+		)
+		if err != nil {
+			log.Printf("new request error: %v\n", err)
+		}
+		request.Header.Set("Content-Type", "application/json; charset=UTF-8")
+
+		client := &http.Client{}
+		response, err := client.Do(request)
+		if err != nil {
+			log.Printf("post data error: %v\n", err)
+			return
+		}
+		defer response.Body.Close()
+		io.Copy(ioutil.Discard, request.Body)
+	}(ctx)
+
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(time.Duration(11 * time.Second)):
+		fmt.Println("post data timeout")
+		return
 	}
 }
 
@@ -161,21 +255,23 @@ func addDepositOrTransfer(
 	recordID uint,
 	bucketID uint64,
 	voter string,
+	delegateName string,
 	amount *big.Int,
-) (hash.Hash256, error) {
+) (hash.Hash256, bool, *big.Int, error) {
 	ctx := context.Background()
 
 	gasPriceStr := util.MustFetchNonEmptyParam("GAS_PRICE")
 	gasPrice, ok := big.NewInt(0).SetString(gasPriceStr, 10)
 	if !ok {
-		return hash.ZeroHash256, errors.New("failed to convert string to big int")
+		return hash.ZeroHash256, true, nil, errors.New("failed to convert string to big int")
 	}
-	gasLimit := 10000
+	// TODO change to 10000?
+	gasLimit := 13000
 
 	gas := big.NewInt(0).Mul(gasPrice, big.NewInt(int64(gasLimit)))
 	if amount.Cmp(gas) <= 0 {
 		log.Printf("amount %s less than gas for %d\n", amount.String(), recordID)
-		return hash.ZeroHash256, nil
+		return hash.ZeroHash256, true, nil, nil
 	}
 
 	autoStake, err := checkAutoStake(c, bucketID)
@@ -184,15 +280,16 @@ func addDepositOrTransfer(
 	}
 
 	var h hash.Hash256
+	ra := big.NewInt(0).Sub(amount, gas)
 	if !autoStake {
 		to, _ := address.FromString(voter)
-		h, err = c.Transfer(to, big.NewInt(0).Sub(amount, gas)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
+		h, err = c.Transfer(to, ra).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
 	} else {
-		h, err = c.Staking().AddDeposit(bucketID, big.NewInt(0).Sub(amount, gas)).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
+		h, err = c.Staking().AddDeposit(bucketID, ra).SetGasPrice(gasPrice).SetGasLimit(uint64(gasLimit)).Call(ctx)
 	}
 
 	if err != nil {
-		return hash.ZeroHash256, err
+		return hash.ZeroHash256, true, nil, err
 	}
 	time.Sleep(5 * time.Second)
 
@@ -205,14 +302,18 @@ func addDepositOrTransfer(
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			return hash.ZeroHash256, err
+			return h, false, nil, err
+		}
+		if resp.ReceiptInfo.Receipt.Status == 204 {
+			delete(bucketStateMap, bucketID)
+			return addDepositOrTransfer(c, recordID, bucketID, voter, delegateName, amount)
 		}
 		if resp.ReceiptInfo.Receipt.Status != 1 {
-			return hash.ZeroHash256, errors.Errorf("add deposit staking failed: %x", h)
+			return h, false, nil, errors.Errorf("add deposit staking failed: %x", h)
 		}
-		return h, nil
+		return h, false, ra, nil
 	}
-	return hash.ZeroHash256, errors.Errorf("add deposit error by exhausted retry, index=%d, hash: %x", bucketID, h)
+	return h, false, nil, errors.Errorf("add deposit error by exhausted retry, index=%d, hash: %x", bucketID, h)
 }
 
 // Send send records
@@ -224,14 +325,17 @@ func (s *Sender) Send() {
 			log.Fatalf("query drop records error: %v", err)
 		}
 		if len(records) == 0 {
-			break
+			time.Sleep(5 * time.Minute)
+			continue
 		}
+		s.Notifier.SendMessage(fmt.Sprintf("Begin send %d compound hermes rewards", len(records)))
 
 		shard := len(s.Accounts)
 		if len(records) < shard || shard == 1 {
 			sender := &accountSender{
-				account: s.Accounts[0],
-				records: records,
+				account:  s.Accounts[0],
+				records:  records,
+				notifier: s.Notifier,
 			}
 			sender.send()
 		} else {
@@ -247,28 +351,25 @@ func (s *Sender) Send() {
 					account:   s.Accounts[i],
 					records:   records[i*size : end],
 					waitGroup: &wg,
+					notifier:  s.Notifier,
 				}
 				go sender.send()
 			}
 			wg.Wait()
 		}
 	}
-	fmt.Println("Add deposit to bucket successful.")
 }
 
 // NewSender new sender instance
-func NewSender() (*Sender, error) {
+func NewSender(notifier *Notifier) (*Sender, error) {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
-	acc, err := util.GetVaultAccount(pwd)
+	acc, err := util.GetAccount("./sender/.sender.json", pwd)
 	if err != nil {
 		return nil, err
-	}
-	// verify the account matches the reward address
-	if acc.Address().String() != util.MustFetchNonEmptyParam("VAULT_ADDRESS") {
-		return nil, fmt.Errorf("key and address do not match")
 	}
 
 	return &Sender{
 		Accounts: []account.Account{acc},
+		Notifier: notifier,
 	}, nil
 }

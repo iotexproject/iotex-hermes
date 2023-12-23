@@ -8,12 +8,15 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
+	"github.com/iotexproject/iotex-address/address"
 	"github.com/iotexproject/iotex-antenna-go/v2/account"
 	"github.com/iotexproject/iotex-antenna-go/v2/iotex"
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
+	"google.golang.org/grpc"
 
 	"github.com/iotexproject/iotex-hermes/cmd/claim"
 	"github.com/iotexproject/iotex-hermes/cmd/dao"
@@ -23,32 +26,49 @@ import (
 
 // main runs the hermes command
 func main() {
+	tls := util.MustFetchNonEmptyParam("RPC_TLS")
 	endpoint := util.MustFetchNonEmptyParam("IO_ENDPOINT")
-	conn, err := iotex.NewDefaultGRPCConn(endpoint)
-	if err != nil {
-		log.Fatalf("construct grpc connection error: %v\n", err)
+	var conn *grpc.ClientConn
+	var err error
+	if tls == "true" {
+		conn, err = iotex.NewDefaultGRPCConn(endpoint)
+		if err != nil {
+			log.Fatalf("construct grpc connection error: %v\n", err)
+		}
+	} else {
+		conn, err = iotex.NewGRPCConnWithoutTLS(endpoint)
+		if err != nil {
+			log.Fatalf("construct grpc connection error: %v\n", err)
+		}
 	}
+
 	defer conn.Close()
 	emptyAccount, err := account.NewAccount()
 	if err != nil {
 		log.Fatalf("new empty account error: %v\n", err)
 	}
-	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), emptyAccount)
+	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, emptyAccount)
 
 	err = dao.ConnectDatabase()
 	if err != nil {
 		log.Fatalf("create database error: %v\n", err)
 	}
 
+	notifier, err := distribute.NewNotifier(util.MustFetchNonEmptyParam("LARK_ENDPOINT"), util.MustFetchNonEmptyParam("LARK_KEY"))
+	if err != nil {
+		log.Fatalf("new notifier error: %v\n", err)
+	}
+
 	retry := 0
 	for {
-		if retry == 3 {
-			log.Fatalf("retry 2 times failure, exit.")
-		}
+		// if retry == 3 {
+		// 	log.Fatalf("retry 2 times failure, exit.")
+		// }
 		lastEndEpoch, err := distribute.GetLastEndEpoch(c)
 		if err != nil {
 			log.Printf("get last end epoch error: %v\n", err)
 			retry++
+			time.Sleep(5 * time.Minute)
 			continue
 		}
 		startEpoch := lastEndEpoch + 1
@@ -57,6 +77,7 @@ func main() {
 		if err != nil {
 			log.Printf("get chain meta error: %v\n", err)
 			retry++
+			time.Sleep(5 * time.Minute)
 			continue
 		}
 		curEpoch := resp.ChainMeta.Epoch.Num
@@ -64,18 +85,11 @@ func main() {
 		endEpoch := startEpoch + 23
 
 		if endEpoch+2 > curEpoch {
-			sender, err := distribute.NewSender()
-			if err != nil {
-				log.Printf("new sender error: %v\n", err)
-				retry++
-				continue
-			}
-			sender.Send()
-
 			resp, err := c.API().GetChainMeta(context.Background(), &iotexapi.GetChainMetaRequest{})
 			if err != nil {
 				log.Printf("get chain meta error: %v\n", err)
 				retry++
+				time.Sleep(5 * time.Minute)
 				continue
 			}
 			curEpoch = resp.ChainMeta.Epoch.Num
@@ -86,24 +100,40 @@ func main() {
 				continue
 			}
 		}
-		err = claim.Reward()
+
+		claimedEpoch := util.GetClaimedEpoch()
+		if claimedEpoch != endEpoch {
+			amount, err := claim.Reward()
+			if err != nil {
+				log.Printf("claim reward error: %v\n", err)
+				retry++
+				time.Sleep(5 * time.Minute)
+				continue
+			}
+			notifier.SendMessage(fmt.Sprintf("Claimed hermes rewards %s", amount.String()))
+			util.SaveClaimedEpoch(endEpoch)
+		}
+		// _, lastEpoch, err := dao.SumByEndEpoch(lastEndEpoch)
+		// if err != nil {
+		// 	log.Printf("sum last deposit error: %v\n", err)
+		// 	retry++
+		// 	continue
+		// }
+
+		sender, err := address.FromString(util.MustFetchNonEmptyParam("SENDER_ADDR"))
 		if err != nil {
-			log.Printf("claim reward error: %v\n", err)
+			log.Printf("get sender address error: %v\n", err)
 			retry++
 			continue
 		}
-		err = distribute.Reward()
+		err = distribute.Reward(notifier, nil, 0, sender)
 		if err != nil {
 			log.Printf("distribute reward error: %v\n", err)
+			notifier.SendMessage(fmt.Sprintf("Send rewards error %v", err))
 			retry++
+			time.Sleep(5 * time.Minute)
 			continue
 		}
-		sender, err := distribute.NewSender()
-		if err != nil {
-			log.Printf("new sender error: %v\n", err)
-			retry++
-			continue
-		}
-		sender.Send()
+		retry = 0
 	}
 }

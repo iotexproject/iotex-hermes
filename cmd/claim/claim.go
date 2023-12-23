@@ -11,14 +11,16 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
-	"strconv"
+	"strings"
 	"time"
 
+	"github.com/iotexproject/go-pkgs/hash"
 	"github.com/iotexproject/iotex-antenna-go/v2/iotex"
 	"github.com/iotexproject/iotex-proto/golang/iotexapi"
 	"github.com/iotexproject/iotex-proto/golang/protocol"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
 
 	"github.com/iotexproject/iotex-hermes/util"
 )
@@ -30,30 +32,42 @@ var ClaimCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
-		return Reward()
+		_, err := Reward()
+		return err
 	},
 }
 
 // Reward is claim reward from contract
-func Reward() error {
+func Reward() (*big.Int, error) {
 	pwd := util.MustFetchNonEmptyParam("VAULT_PASSWORD")
 	account, err := util.GetVaultAccount(pwd)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	tls := util.MustFetchNonEmptyParam("RPC_TLS")
 	endpoint := util.MustFetchNonEmptyParam("IO_ENDPOINT")
-	conn, err := iotex.NewDefaultGRPCConn(endpoint)
-	if err != nil {
-		return err
+	var conn *grpc.ClientConn
+
+	if tls == "true" {
+		conn, err = iotex.NewDefaultGRPCConn(endpoint)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		conn, err = iotex.NewGRPCConnWithoutTLS(endpoint)
+		if err != nil {
+			return nil, err
+		}
 	}
 	defer conn.Close()
-	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), account)
+
+	c := iotex.NewAuthedClient(iotexapi.NewAPIServiceClient(conn), 1, account)
 
 	// get current epoch and block height
 	resp, err := c.API().GetChainMeta(context.Background(), &iotexapi.GetChainMetaRequest{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	curEpoch := resp.ChainMeta.Epoch.Num
 	curHeight := resp.ChainMeta.Height
@@ -63,10 +77,11 @@ func Reward() error {
 
 	unclaimedBalance, err := getUnclaimedBalance(c)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fmt.Printf("Unclaimed Balance: %s\n", unclaimedBalance.String())
-	return claim(c, unclaimedBalance)
+	err = claim(c, unclaimedBalance)
+	return unclaimedBalance, err
 }
 
 func getUnclaimedBalance(c iotex.AuthedClient) (*big.Int, error) {
@@ -92,22 +107,35 @@ func claim(c iotex.AuthedClient, unclaimedBalance *big.Int) error {
 	if err != nil {
 		return err
 	}
-	sleepIntervalStr := util.MustFetchNonEmptyParam("SLEEP_INTERVAL")
-	sleepInterval, err := strconv.Atoi(sleepIntervalStr)
-	if err != nil {
-		return err
-	}
-	time.Sleep(time.Duration(sleepInterval) * time.Second)
 
-	resp, err := c.API().GetReceiptByAction(ctx, &iotexapi.GetReceiptByActionRequest{
-		ActionHash: hex.EncodeToString(hash[:]),
-	})
+	err = checkActionReceipt(c, hash)
 	if err != nil {
 		return err
-	}
-	if resp.ReceiptInfo.Receipt.Status != 1 {
-		return errors.Errorf("claim rewards failed: %x", hash)
 	}
 	fmt.Println("successfully claim rewards")
 	return nil
+}
+
+func checkActionReceipt(c iotex.AuthedClient, hash hash.Hash256) error {
+	time.Sleep(5 * time.Second)
+	var resp *iotexapi.GetReceiptByActionResponse
+	var err error
+	for i := 0; i < 120; i++ {
+		resp, err = c.API().GetReceiptByAction(context.Background(), &iotexapi.GetReceiptByActionRequest{
+			ActionHash: hex.EncodeToString(hash[:]),
+		})
+		if err != nil {
+			if strings.Contains(err.Error(), "code = NotFound") {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			return err
+		}
+		if resp.ReceiptInfo.Receipt.Status != 1 {
+			return errors.Errorf("action %x check receipt failed", hash)
+		}
+		return nil
+	}
+	fmt.Printf("action %x check receipt not found\n", hash)
+	return err
 }
